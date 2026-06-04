@@ -21,7 +21,9 @@ Cấu trúc theo module, tách rõ `core/` (hạ tầng dùng chung) và `module
 | OpenAPI     | `@nestjs/swagger` + `@fastify/static` (peer dep để Swagger UI hoạt động trên Fastify) |
 | Config      | `@nestjs/config` |
 | Auth        | `@nestjs/jwt` + `@nestjs/passport` + `passport` + `passport-jwt` + `bcrypt` |
-| DX          | pnpm, Docker Compose, ESLint, Prettier |
+| Package mgr | **pnpm** (duy nhất; commit `pnpm-lock.yaml`, không dùng npm/yarn) |
+| Format/Lint | **Biome** (`@biomejs/biome`) — gộp cả format + lint, thay cho ESLint + Prettier |
+| DX          | Docker Compose, `nest-cli.json` |
 
 **Lưu ý API mới (Context7):**
 - `nestjs-zod` bản mới: dùng `cleanupOpenApiDoc(openApiDoc)` (thay cho `patchNestJsSwagger()` đã deprecated)
@@ -56,6 +58,8 @@ src/
 │   │   └── logging.interceptor.ts
 │   ├── guards/
 │   │   └── jwt-auth.guard.ts     # AuthGuard('jwt') + tôn trọng @Public
+│   ├── health/
+│   │   └── health.controller.ts # GET /health, @Public (probe liveness)
 │   └── decorators/
 │       ├── current-user.decorator.ts
 │       └── public.decorator.ts
@@ -130,15 +134,17 @@ src/
 - Endpoint cần auth (vd `GET /auth/me`, Users CRUD) tự động được bảo vệ vì guard là global.
 
 ## Docker & DX
+- **pnpm** là package manager duy nhất; commit `pnpm-lock.yaml`. Mọi script chạy qua `pnpm <script>`.
 - `docker-compose.yml`: `postgres`, `redis`, `rabbitmq` (image `rabbitmq:3-management`, UI 15672).
 - `.env.example` đầy đủ biến.
-- Scripts (pnpm): `start:dev`, `start`, `build`, `prisma:generate`, `prisma:migrate`, `lint`, `format`.
+- Scripts (pnpm): `start:dev`, `start`, `build`, `prisma:generate`, `prisma:migrate`,
+  `format` (`biome format --write .`), `lint` (`biome check .`), `check` (`biome check --write .`).
 - `nest-cli.json`, cập nhật `tsconfig.json` (experimentalDecorators, emitDecoratorMetadata, target ES2021+, paths `@app/*`).
-- ESLint + Prettier config tối giản.
+- **Biome**: `biome.json` cấu hình formatter + linter (thay ESLint + Prettier); không thêm ESLint/Prettier deps.
 
 ## Testing Strategy
-- Smoke: `pnpm build` (tsc) phải pass.
-- App bootstrap được (start, Swagger `/docs` truy cập được) — kiểm tra thủ công với docker-compose up.
+- Smoke: `pnpm build` (nest build / tsc) và `pnpm lint` (`biome check .`) phải pass.
+- App bootstrap được (start, Swagger `/docs` và `GET /health` truy cập được) — kiểm tra thủ công với docker-compose up.
 - Unit test mẫu cho `UsersService` / `AuthService` (Jest) — tuỳ chọn ở plan, giữ tối thiểu 1 spec mẫu.
 
 ## Out of Scope (YAGNI)

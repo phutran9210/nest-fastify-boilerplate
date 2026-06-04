@@ -6,10 +6,11 @@ import { HttpExceptionFilter } from './core/filters/http-exception.filter';
 import { JwtAuthGuard } from './core/guards/jwt-auth.guard';
 import { HealthController } from './core/health/health.controller';
 import { PrismaModule } from './core/prisma/prisma.module';
+import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 
 @Module({
-  imports: [CoreConfigModule, PrismaModule, UsersModule],
+  imports: [CoreConfigModule, PrismaModule, UsersModule, AuthModule],
   controllers: [HealthController],
   providers: [
     { provide: APP_PIPE, useClass: ZodValidationPipe },

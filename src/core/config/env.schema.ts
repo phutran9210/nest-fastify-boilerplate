@@ -13,7 +13,8 @@ export const envSchema = z.object({
   RABBITMQ_QUEUE: z.string().default('notifications_queue'),
 
   JWT_SECRET: z.string().min(8),
-  JWT_EXPIRES_IN: z.string().default('3600s'),
+  // Seconds until the access token expires (jsonwebtoken accepts a number of seconds).
+  JWT_EXPIRES_IN: z.coerce.number().int().positive().default(3600),
 });
 
 export type Env = z.infer<typeof envSchema>;

@@ -16,9 +16,9 @@ Cấu trúc theo module, tách rõ `core/` (hạ tầng dùng chung) và `module
 | Framework   | `@nestjs/core` 11, `@nestjs/common` 11, `@nestjs/platform-fastify` |
 | ORM         | `prisma` + `@prisma/client` (PostgreSQL) |
 | Queue       | `@nestjs/bullmq` + `bullmq` (Redis) |
-| Messaging   | `@nestjs/microservices` (transport RMQ) + `amqplib` |
+| Messaging   | `@nestjs/microservices` (transport RMQ) + `amqplib` + `amqp-connection-manager` |
 | Validation  | `zod` v4 + `nestjs-zod` |
-| OpenAPI     | `@nestjs/swagger` + `@fastify/swagger` |
+| OpenAPI     | `@nestjs/swagger` + `@fastify/static` (peer dep để Swagger UI hoạt động trên Fastify) |
 | Config      | `@nestjs/config` |
 | Auth        | `@nestjs/jwt` + `@nestjs/passport` + `passport` + `passport-jwt` + `bcrypt` |
 | DX          | pnpm, Docker Compose, ESLint, Prettier |
@@ -28,7 +28,9 @@ Cấu trúc theo module, tách rõ `core/` (hạ tầng dùng chung) và `module
   và Zod v4 qua `z.toJSONSchema()`.
 - DTO: `class XDto extends createZodDto(zSchema) {}`.
 - Global: `ZodValidationPipe` (APP_PIPE), `ZodSerializerInterceptor` (APP_INTERCEPTOR),
-  `HttpExceptionFilter` xử lý `ZodSerializationException` (APP_FILTER).
+  `HttpExceptionFilter` xử lý `ZodSerializationException` (APP_FILTER), `JwtAuthGuard` (APP_GUARD).
+- RMQ transport cần CẢ `amqplib` VÀ `amqp-connection-manager` (thiếu sẽ lỗi runtime khi load transport).
+- Swagger trên Fastify cần `@fastify/static` (không phải `@fastify/swagger`) để serve được Swagger UI tại `/docs`.
 
 ## Folder Structure
 
@@ -60,11 +62,12 @@ src/
 ├── modules/                     # business modules
 │   ├── users/
 │   │   ├── users.module.ts
-│   │   ├── users.controller.ts  # CRUD, Swagger decorated
+│   │   ├── users.controller.ts  # CRUD, Swagger decorated, @ZodResponse(UserResponseDto)
 │   │   ├── users.service.ts     # dùng PrismaService
 │   │   └── dto/
 │   │       ├── create-user.dto.ts   # zod schema + createZodDto
-│   │       └── update-user.dto.ts
+│   │       ├── update-user.dto.ts
+│   │       └── user-response.dto.ts # schema KHÔNG có password (chống leak hash)
 │   ├── auth/
 │   │   ├── auth.module.ts        # JwtModule.registerAsync
 │   │   ├── auth.controller.ts    # register, login
@@ -85,15 +88,18 @@ src/
 
 ### main.ts
 - `NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter())`.
-- `app.connectMicroservice<MicroserviceOptions>({ transport: Transport.RMQ, options: { urls, queue } })`
-  để chạy hybrid (HTTP + RMQ consumer trong cùng app).
+- `app.connectMicroservice<MicroserviceOptions>({ transport: Transport.RMQ, options: { urls, queue } },
+  { inheritAppConfig: true })` để chạy hybrid (HTTP + RMQ consumer cùng app) VÀ kế thừa pipe/interceptor/filter/guard
+  global cho RMQ handler (mặc định hybrid KHÔNG kế thừa).
 - Swagger: `SwaggerModule.setup('docs', app, cleanupOpenApiDoc(openApiDoc))`.
 - `app.startAllMicroservices()` rồi `app.listen(port, '0.0.0.0')`.
 
 ### app.module.ts
 - Import: `CoreConfigModule`, `PrismaModule`, `QueueModule`, `MessagingModule`, và các business module.
 - Providers global: `{ APP_PIPE: ZodValidationPipe }`, `{ APP_INTERCEPTOR: ZodSerializerInterceptor }`,
-  `{ APP_FILTER: HttpExceptionFilter }`.
+  `{ APP_FILTER: HttpExceptionFilter }`, `{ APP_GUARD: JwtAuthGuard }`.
+- **Bảo vệ route mặc định**: `JwtAuthGuard` đăng ký global qua `APP_GUARD` → mọi route được bảo vệ mặc định;
+  các route công khai (login, register, health) đánh dấu `@Public()` để bypass. Tránh tình huống "JWT cấp ra nhưng route không được bảo vệ".
 
 ### Config + Zod env validation
 - `env.schema.ts` định nghĩa Zod schema (DATABASE_URL, REDIS_HOST/PORT, RABBITMQ_URL, JWT_SECRET, …).
@@ -103,6 +109,9 @@ src/
 - `schema.prisma`: datasource postgresql, generator client; model `User` mẫu (id, email unique, password, name, timestamps).
 - `PrismaService` extends `PrismaClient`, connect trong `onModuleInit`.
 - Migration ban đầu qua `prisma migrate dev`.
+- **An toàn response**: model `User` chứa `password` (hash). MỌI response qua Users/Auth phải dùng
+  `UserResponseDto` (schema không có `password`) + `@ZodResponse({ type: UserResponseDto })` để
+  `ZodSerializerInterceptor` strip field, không để lộ hash ra client.
 
 ### BullMQ (queue mẫu)
 - `QueueModule`: `BullModule.forRootAsync` lấy host/port Redis từ config (@Global).
@@ -113,9 +122,12 @@ src/
 - Consumer demo: controller dùng `@EventPattern('notification.created')` nhận message từ queue RMQ.
 
 ### Auth (Passport JWT)
-- `register`: hash password (bcrypt), tạo user.
-- `login`: validate, ký JWT (`@nestjs/jwt`).
-- `JwtStrategy` (passport-jwt) đọc Bearer token; `JwtAuthGuard` (AuthGuard('jwt')) + `@Public()` bypass.
+- `register`, `login` đánh dấu `@Public()` (bypass APP_GUARD).
+- `register`: hash password (bcrypt), tạo user → trả `UserResponseDto` (không có password).
+- `login`: validate, ký JWT (`@nestjs/jwt`) → trả `{ accessToken }`.
+- `JwtStrategy` (passport-jwt) đọc Bearer token, trả payload user (đã loại password).
+- `JwtAuthGuard` (AuthGuard('jwt')) đăng ký global ở APP_GUARD; route có `@Public()` được bypass.
+- Endpoint cần auth (vd `GET /auth/me`, Users CRUD) tự động được bảo vệ vì guard là global.
 
 ## Docker & DX
 - `docker-compose.yml`: `postgres`, `redis`, `rabbitmq` (image `rabbitmq:3-management`, UI 15672).

@@ -1,17 +1,14 @@
-import { NestFactory } from '@nestjs/core';
-import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { NestFactory } from '@nestjs/core';
 import { type MicroserviceOptions, Transport } from '@nestjs/microservices';
+import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { cleanupOpenApiDoc } from 'nestjs-zod';
 import { AppModule } from './app.module';
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create<NestFastifyApplication>(
-    AppModule,
-    new FastifyAdapter(),
-  );
+  const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter());
   const config = app.get(ConfigService);
 
   app.enableCors();
@@ -44,4 +41,8 @@ async function bootstrap(): Promise<void> {
   await app.listen(port, '0.0.0.0');
   new Logger('Bootstrap').log(`HTTP on :${port} | Swagger at /docs`);
 }
-bootstrap();
+
+bootstrap().catch((err) => {
+  new Logger('Bootstrap').error(err);
+  process.exit(1);
+});

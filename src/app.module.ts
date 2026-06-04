@@ -5,14 +5,25 @@ import { CoreConfigModule } from './core/config/config.module';
 import { HttpExceptionFilter } from './core/filters/http-exception.filter';
 import { JwtAuthGuard } from './core/guards/jwt-auth.guard';
 import { HealthController } from './core/health/health.controller';
+import { MessagingModule } from './core/messaging/messaging.module';
 import { PrismaModule } from './core/prisma/prisma.module';
 import { QueueModule } from './core/queue/queue.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { MailModule } from './modules/mail/mail.module';
+import { NotificationsModule } from './modules/messaging/consumer/notifications.module';
 import { UsersModule } from './modules/users/users.module';
 
 @Module({
-  imports: [CoreConfigModule, PrismaModule, QueueModule, UsersModule, AuthModule, MailModule],
+  imports: [
+    CoreConfigModule,
+    PrismaModule,
+    QueueModule,
+    MessagingModule,
+    UsersModule,
+    AuthModule,
+    MailModule,
+    NotificationsModule,
+  ],
   controllers: [HealthController],
   providers: [
     { provide: APP_PIPE, useClass: ZodValidationPipe },

@@ -6,11 +6,13 @@ import { HttpExceptionFilter } from './core/filters/http-exception.filter';
 import { JwtAuthGuard } from './core/guards/jwt-auth.guard';
 import { HealthController } from './core/health/health.controller';
 import { PrismaModule } from './core/prisma/prisma.module';
+import { QueueModule } from './core/queue/queue.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { MailModule } from './modules/mail/mail.module';
 import { UsersModule } from './modules/users/users.module';
 
 @Module({
-  imports: [CoreConfigModule, PrismaModule, UsersModule, AuthModule],
+  imports: [CoreConfigModule, PrismaModule, QueueModule, UsersModule, AuthModule, MailModule],
   controllers: [HealthController],
   providers: [
     { provide: APP_PIPE, useClass: ZodValidationPipe },

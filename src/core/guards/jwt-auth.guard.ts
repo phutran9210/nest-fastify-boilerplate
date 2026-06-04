@@ -10,6 +10,12 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
   }
 
   canActivate(context: ExecutionContext) {
+    // Microservice (e.g. RabbitMQ) handlers carry no Authorization header; running the
+    // JWT strategy on them throws and silently drops the message. Only guard HTTP routes.
+    if (context.getType() !== 'http') {
+      return true;
+    }
+
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
       context.getHandler(),
       context.getClass(),

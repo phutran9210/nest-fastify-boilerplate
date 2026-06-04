@@ -21,12 +21,13 @@ export class NotificationsController {
   @Post('publish')
   publish() {
     const payload: NotificationCreated = { userId: 'demo', message: 'hello from http' };
-    this.client.emit('notification.created', payload);
+    // emit() returns a cold Observable — subscribe so the message is actually sent.
+    this.client.emit('notification.created', payload).subscribe();
     return { published: true };
   }
 
-  // RabbitMQ consumer (demo). Runs in the attached microservice.
-  @Public()
+  // RabbitMQ consumer (demo). Runs in the attached microservice. No @Public() needed:
+  // JwtAuthGuard skips non-HTTP contexts (see core/guards/jwt-auth.guard.ts).
   @EventPattern('notification.created')
   handleCreated(@Payload() data: NotificationCreated): void {
     this.logger.log(`Received notification.created for user=${data.userId}: ${data.message}`);

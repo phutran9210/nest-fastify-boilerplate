@@ -9,7 +9,6 @@
     "target": "ES2021",
     "sourceMap": true,
     "outDir": "./dist",
-    "baseUrl": "./",
     "incremental": true,
     "skipLibCheck": true,
     "strictNullChecks": true,
@@ -20,7 +19,7 @@
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "paths": {
-      "@app/*": ["src/*"]
+      "@app/*": ["./src/*"]
     }
   },
   "include": ["src"],

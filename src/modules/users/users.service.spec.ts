@@ -39,4 +39,10 @@ describe('UsersService', () => {
     });
     expect(result).toBe(created);
   });
+
+  it('findOne throws NotFoundException when the user does not exist', async () => {
+    prisma.user.findUnique.mockResolvedValue(null);
+    await expect(service.findOne('missing')).rejects.toMatchObject({ status: 404 });
+    expect(prisma.user.findUnique).toHaveBeenCalledWith({ where: { id: 'missing' } });
+  });
 });

@@ -11,6 +11,8 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter());
   const config = app.get(ConfigService);
 
+  // Permissive CORS for local/dev. Restrict `origin` (e.g. from an ALLOWED_ORIGINS env var)
+  // before deploying to production.
   app.enableCors();
 
   app.connectMicroservice<MicroserviceOptions>(

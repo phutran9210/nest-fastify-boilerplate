@@ -19,6 +19,8 @@ class SendMailDto extends (createZodDto(sendMailSchema) as ReturnType<
 export class MailController {
   constructor(private readonly producer: MailProducer) {}
 
+  // @Public so the demo can be triggered without a token. Guard this (remove @Public)
+  // before exposing a real queue trigger.
   @Public()
   @Post('test')
   async test(@Body() dto: SendMailDto) {

@@ -5,6 +5,7 @@ import { CoreConfigModule } from './core/config/config.module';
 import { HttpExceptionFilter } from './core/filters/http-exception.filter';
 import { JwtAuthGuard } from './core/guards/jwt-auth.guard';
 import { HealthController } from './core/health/health.controller';
+import { LoggingInterceptor } from './core/interceptors/logging.interceptor';
 import { MessagingModule } from './core/messaging/messaging.module';
 import { PrismaModule } from './core/prisma/prisma.module';
 import { QueueModule } from './core/queue/queue.module';
@@ -27,6 +28,7 @@ import { UsersModule } from './modules/users/users.module';
   controllers: [HealthController],
   providers: [
     { provide: APP_PIPE, useClass: ZodValidationPipe },
+    { provide: APP_INTERCEPTOR, useClass: LoggingInterceptor },
     { provide: APP_INTERCEPTOR, useClass: ZodSerializerInterceptor },
     { provide: APP_FILTER, useClass: HttpExceptionFilter },
     { provide: APP_GUARD, useClass: JwtAuthGuard },

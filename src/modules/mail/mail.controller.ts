@@ -2,7 +2,7 @@ import { Body, Controller, Post } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
-import { Public } from '../../core/decorators/public.decorator';
+import { Public } from '../../common/decorators/public.decorator';
 import { MailProducer } from './mail.producer';
 
 const sendMailSchema = z.object({

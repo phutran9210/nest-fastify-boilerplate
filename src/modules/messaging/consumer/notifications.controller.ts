@@ -1,7 +1,7 @@
 import { Controller, Inject, Logger, Post } from '@nestjs/common';
 import { type ClientProxy, EventPattern, Payload } from '@nestjs/microservices';
 import { ApiTags } from '@nestjs/swagger';
-import { Public } from '../../../core/decorators/public.decorator';
+import { Public } from '../../../common/decorators/public.decorator';
 import { RMQ_CLIENT } from '../../../core/messaging/messaging.module';
 
 interface NotificationCreated {

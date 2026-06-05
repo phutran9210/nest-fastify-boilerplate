@@ -1,11 +1,11 @@
 import { Module } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { ZodSerializerInterceptor, ZodValidationPipe } from 'nestjs-zod';
+import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
+import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { CoreConfigModule } from './core/config/config.module';
-import { HttpExceptionFilter } from './core/filters/http-exception.filter';
-import { JwtAuthGuard } from './core/guards/jwt-auth.guard';
 import { HealthController } from './core/health/health.controller';
-import { LoggingInterceptor } from './core/interceptors/logging.interceptor';
 import { MessagingModule } from './core/messaging/messaging.module';
 import { PrismaModule } from './core/prisma/prisma.module';
 import { QueueModule } from './core/queue/queue.module';

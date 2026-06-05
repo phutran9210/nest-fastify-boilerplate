@@ -14,6 +14,7 @@ Tài liệu ngắn gọn cho Claude. Đọc kỹ trước khi sinh code.
 | Auth | passport-jwt, global `JwtAuthGuard` |
 | Queue / Messaging | BullMQ (`@nestjs/bullmq`), RabbitMQ microservice (`@nestjs/microservices`) |
 | Ngày giờ | `@js-temporal/polyfill` (Temporal API) |
+| Logging | Pino (`nestjs-pino`) — global `LoggerModule` tại `src/core/logger/`; `pino-pretty` chỉ ở dev, prod là JSON; thay logger Nest qua `app.useLogger` |
 | Tooling | Biome (lint + format), Jest, pnpm |
 | API Docs | Swagger UI tại `/docs` — xây bằng `cleanupOpenApiDoc` từ nestjs-zod |
 
@@ -43,6 +44,17 @@ pnpm prisma:generate  # Sinh Prisma client
 - Global `JwtAuthGuard` bao ve MOI route mac dinh.
 - De lo route cong khai: gan decorator `@Public()` (tu `src/common/decorators/public.decorator.ts`).
 - Controller can xac thuc: `ApiBearerAuth()` dat BEN TRONG composite decorator cua module (xem muc Swagger ben duoi), KHONG dat truc tiep tren controller.
+
+### Logging — Pino (nestjs-pino)
+- Logger toan cuc cau hinh tai `src/core/logger/logger.module.ts`; `main.ts` thay logger Nest qua `app.useLogger(app.get(Logger))` (Logger tu `nestjs-pino`) + `bufferLogs: true`.
+- Trong service/controller: dung `Logger` cua `@nestjs/common` (da route qua Pino) hoac inject `PinoLogger` tu `nestjs-pino`. **KHONG dung `console.log`.**
+- Request log tu dong qua pino-http — KHONG tu viet interceptor log request.
+- Level: `LOG_LEVEL` env (mac dinh `debug` o dev, `info` o prod).
+- **Redact du lieu nhay cam**: danh sach path tai `src/core/logger/log-redact.ts` (`authorization`, `cookie`, `password`, `token`, `secret`… ca top-level lan `*.x`). Them field nhay cam moi vao file nay.
+- **Ghi log ra file (tuy chon)**: `LOG_FILE_ENABLED=true` → file tong `app.<date>.N.log` trong `LOG_DIR` (mac dinh `logs/`). Xoay khi **sang ngay moi HOAC file vuot `LOG_FILE_MAX_SIZE`** (mac dinh `50m`); giu `LOG_FILE_MAX_DAYS` file gan nhat (mac dinh 30) qua `pino-roll`. Console van log song song.
+- **File loi rieng (tuy chon)**: `LOG_ERROR_FILE_ENABLED=true` → them `error.<date>.N.log` CHI chua level≥error (loi van vao ca file tong → giu tuong quan).
+- **Script loc log** (jq + pino-pretty): `pnpm logs` (xem dep), `pnpm logs:tail` (live), `pnpm logs:err` (chi loi), `pnpm logs:warn` (warn+), `pnpm logs:errfile` (xem file loi rieng).
+- `req.id` trong log == header `x-request-id` tra ve client (cung nguon tu Fastify `genReqId`).
 
 ### Swagger — gom tap trung trong `decorators/`
 - MOI controller co file `<module>/decorators/<feature>-api.decorator.ts` chua toan bo metadata Swagger duoi dang composite `applyDecorators`.

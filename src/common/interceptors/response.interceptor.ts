@@ -1,17 +1,13 @@
+import { Temporal } from '@js-temporal/polyfill';
 import {
   type CallHandler,
   type ExecutionContext,
   Injectable,
   type NestInterceptor,
 } from '@nestjs/common';
-import { Temporal } from '@js-temporal/polyfill';
 import type { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
-import type {
-  PaginationMeta,
-  ResponseMeta,
-  SuccessResponse,
-} from '../http/response.types';
+import type { PaginationMeta, ResponseMeta, SuccessResponse } from '../http/response.types';
 
 type PaginatedPayload = { items: unknown[]; page: number; limit: number; total: number };
 

@@ -28,6 +28,8 @@ export class UsersController {
 
   @Get()
   @ZodSerializerDto(PaginatedUsersResponseDto)
+  // Document data as UserResponseDto[]: ResponseInterceptor lifts `items` into `data`, so the
+  // documented shape matches the wire shape (PaginatedUsersResponseDto is the pre-lift shape).
   @ApiEnvelopeResponse(UserResponseDto, { paginated: true })
   async findAll(@Query() query: ListUsersQueryDto) {
     const { items, total } = await this.users.findAll(query);

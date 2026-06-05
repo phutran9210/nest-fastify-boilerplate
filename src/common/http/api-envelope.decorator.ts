@@ -19,7 +19,6 @@ type EnvelopeOptions = {
 };
 
 const metaProperties = (paginated: boolean) => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const properties: Record<string, any> = {
     timestamp: { type: 'string' },
     path: { type: 'string' },

@@ -27,7 +27,7 @@ export class NotificationsController {
   }
 
   // RabbitMQ consumer (demo). Runs in the attached microservice. No @Public() needed:
-  // JwtAuthGuard skips non-HTTP contexts (see core/guards/jwt-auth.guard.ts).
+  // JwtAuthGuard skips non-HTTP contexts (see common/guards/jwt-auth.guard.ts).
   @EventPattern('notification.created')
   handleCreated(@Payload() data: NotificationCreated): void {
     this.logger.log(`Received notification.created for user=${data.userId}: ${data.message}`);

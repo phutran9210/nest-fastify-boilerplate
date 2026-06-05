@@ -14,7 +14,11 @@ async function bootstrap(): Promise<void> {
     new FastifyAdapter({
       // Reuse an inbound correlation id if present; otherwise generate one. Surfaced back to
       // the client as `x-request-id` by ResponseInterceptor / HttpExceptionFilter.
-      genReqId: (req) => (req.headers['x-request-id'] as string) ?? randomUUID(),
+      genReqId: (req) => {
+        // A duplicated header arrives as string[]; take the first. Fall back to a fresh UUID.
+        const header = req.headers['x-request-id'];
+        return (Array.isArray(header) ? header[0] : header) ?? randomUUID();
+      },
     }),
   );
   const config = app.get(ConfigService);

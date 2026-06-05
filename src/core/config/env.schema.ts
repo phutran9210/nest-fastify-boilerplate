@@ -31,6 +31,9 @@ export const envSchema = z.object({
   JWT_SECRET: z.string().min(8),
   // Seconds until the access token expires (jsonwebtoken accepts a number of seconds).
   JWT_EXPIRES_IN: z.coerce.number().int().positive().default(3600),
+
+  // Ngôn ngữ fallback của nestjs-i18n khi không resolve được locale hoặc thiếu bản dịch.
+  FALLBACK_LANGUAGE: z.string().default('vi'),
 });
 
 export type Env = z.infer<typeof envSchema>;

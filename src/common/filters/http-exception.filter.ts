@@ -1,3 +1,4 @@
+import type { I18nTranslations } from '@generated/i18n.generated';
 import { Temporal } from '@js-temporal/polyfill';
 import {
   type ArgumentsHost,
@@ -8,8 +9,10 @@ import {
   Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { I18nContext, I18nService } from 'nestjs-i18n';
 import { ZodSerializationException, ZodValidationException } from 'nestjs-zod';
 import { ZodError } from 'zod';
+import { AppException } from '../exceptions/app.exception';
 import type { ErrorDetail, ErrorResponse } from '../http/response.types';
 
 // Machine-readable code = tên hằng của Nest HttpStatus (reverse-mapping numeric enum).
@@ -41,7 +44,10 @@ function extractMessage(exception: HttpException): string {
 export class HttpExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(HttpExceptionFilter.name);
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    private readonly i18n: I18nService<I18nTranslations>,
+  ) {}
 
   catch(exception: unknown, host: ArgumentsHost): void {
     // Non-HTTP (RMQ) contexts have no reply to write; let the transport handle it.
@@ -56,6 +62,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let message = 'Internal server error';
     let details: ErrorDetail[] | undefined;
+    let codeOverride: string | undefined;
 
     if (exception instanceof ZodSerializationException) {
       // Response did not match its DTO — a server bug. Log it; never leak details to the client.
@@ -77,6 +84,13 @@ export class HttpExceptionFilter implements ExceptionFilter {
           message: issue.message,
         }));
       }
+    } else if (exception instanceof AppException) {
+      status = exception.getStatus();
+      message = this.i18n.translate(exception.messageKey, {
+        lang: I18nContext.current()?.lang,
+        args: exception.args,
+      });
+      codeOverride = exception.code;
     } else if (exception instanceof HttpException) {
       status = exception.getStatus();
       message = extractMessage(exception);
@@ -99,7 +113,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const responseBody: ErrorResponse = {
       success: false,
       error: {
-        code: codeFromStatus(status),
+        code: codeOverride ?? codeFromStatus(status),
         message,
         ...(details ? { details } : {}),
       },

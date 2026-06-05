@@ -1,5 +1,5 @@
+import { AppException } from '@common/exceptions/app.exception';
 import { UsersService } from '@modules/users/services/users.service';
-import { ConflictException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Test } from '@nestjs/testing';
 import * as bcrypt from 'bcrypt';
@@ -34,7 +34,7 @@ describe('AuthService', () => {
     const hash = await bcrypt.hash('password123', 10);
     users.findByEmail.mockResolvedValue({ id: '1', email: 'a@b.com', password: hash, name: 'A' });
     await expect(service.login({ email: 'a@b.com', password: 'wrongpass' })).rejects.toBeInstanceOf(
-      UnauthorizedException,
+      AppException,
     );
   });
 
@@ -42,7 +42,7 @@ describe('AuthService', () => {
     users.findByEmail.mockResolvedValue({ id: '1', email: 'a@b.com', password: 'hash', name: 'A' });
     await expect(
       service.register({ email: 'a@b.com', password: 'password123' }),
-    ).rejects.toBeInstanceOf(ConflictException);
+    ).rejects.toBeInstanceOf(AppException);
     expect(users.create).not.toHaveBeenCalled();
   });
 

@@ -1,0 +1,4 @@
+{
+  "NOT_FOUND": "User {id} not found",
+  "EMAIL_TAKEN": "Email {email} is already in use"
+}

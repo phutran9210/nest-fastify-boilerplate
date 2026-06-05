@@ -1,0 +1,4 @@
+{
+  "NOT_FOUND": "Không tìm thấy người dùng {id}",
+  "EMAIL_TAKEN": "Email {email} đã được sử dụng"
+}

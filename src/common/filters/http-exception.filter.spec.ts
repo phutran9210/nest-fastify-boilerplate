@@ -1,6 +1,13 @@
-import { BadRequestException, ConflictException, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  HttpStatus,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { ZodSerializationException, ZodValidationException } from 'nestjs-zod';
 import { ZodError } from 'zod';
+import { AppException } from '../exceptions/app.exception';
 import { HttpExceptionFilter } from './http-exception.filter';
 
 function host(req: unknown, res: unknown) {
@@ -12,6 +19,7 @@ function host(req: unknown, res: unknown) {
 
 describe('HttpExceptionFilter', () => {
   const config = { get: jest.fn().mockReturnValue('test') } as never;
+  const i18n = { translate: jest.fn((key: string) => `translated:${key}`) };
   let filter: HttpExceptionFilter;
   let res: { status: jest.Mock; send: jest.Mock; header: jest.Mock };
   const req = { id: 'req-1', url: '/users' };
@@ -20,7 +28,7 @@ describe('HttpExceptionFilter', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    filter = new HttpExceptionFilter(config);
+    filter = new HttpExceptionFilter(config, i18n as never);
     res = {
       status: jest.fn().mockReturnThis(),
       send: jest.fn().mockReturnThis(),
@@ -84,6 +92,29 @@ describe('HttpExceptionFilter', () => {
     expect(body().error.message).toBe('Internal server error');
     expect(body().error.details).toBeUndefined();
     expect(errorSpy).toHaveBeenCalled();
+  });
+
+  it('translates an AppException messageKey via I18nService and keeps status-derived code', () => {
+    filter.catch(
+      new AppException('users.NOT_FOUND', HttpStatus.NOT_FOUND, { id: '1' }),
+      host(req, res),
+    );
+    expect(res.status).toHaveBeenCalledWith(404);
+    expect(body().error.code).toBe('NOT_FOUND');
+    expect(body().error.message).toBe('translated:users.NOT_FOUND');
+    expect(i18n.translate).toHaveBeenCalledWith(
+      'users.NOT_FOUND',
+      expect.objectContaining({ args: { id: '1' } }),
+    );
+  });
+
+  it('uses AppException.code override when provided', () => {
+    filter.catch(
+      new AppException('auth.EMAIL_TAKEN', HttpStatus.CONFLICT, undefined, 'EMAIL_TAKEN'),
+      host(req, res),
+    );
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(body().error.code).toBe('EMAIL_TAKEN');
   });
 
   it('includes ISO timestamp, request path, and requestId in meta', () => {

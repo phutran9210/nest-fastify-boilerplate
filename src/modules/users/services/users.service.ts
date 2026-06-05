@@ -1,10 +1,12 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { AppException } from '@common/exceptions/app.exception';
+import { HttpStatus, Injectable } from '@nestjs/common';
 import {
   type CreateUserData,
   type UpdateUserData,
   type User,
   UserRepository,
 } from '../repositories/user.repository.port';
+import { UserMessage } from '../users.messages';
 
 @Injectable()
 export class UsersService {
@@ -33,7 +35,7 @@ export class UsersService {
   async findOne(id: string): Promise<User> {
     const user = await this.users.findById(id);
     if (!user) {
-      throw new NotFoundException(`User ${id} not found`);
+      throw new AppException(UserMessage.NOT_FOUND, HttpStatus.NOT_FOUND, { id });
     }
     return user;
   }

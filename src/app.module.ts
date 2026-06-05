@@ -6,6 +6,7 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { CoreConfigModule } from './core/config/config.module';
 import { HealthController } from './core/health/health.controller';
+import { CoreI18nModule } from './core/i18n/i18n.module';
 import { LoggerModule } from './core/logger/logger.module';
 import { MessagingModule } from './core/messaging/messaging.module';
 import { PrismaModule } from './core/prisma/prisma.module';
@@ -19,6 +20,7 @@ import { UsersModule } from './modules/users/users.module';
   imports: [
     CoreConfigModule,
     LoggerModule,
+    CoreI18nModule,
     PrismaModule,
     QueueModule,
     MessagingModule,

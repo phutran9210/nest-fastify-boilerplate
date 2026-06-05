@@ -7,6 +7,7 @@ import {
   ApiNotFoundResponse,
   ApiResponse,
   ApiUnauthorizedResponse,
+  ApiUnprocessableEntityResponse,
   getSchemaPath,
 } from '@nestjs/swagger';
 import { ErrorResponseDto } from './error-response.dto';
@@ -65,8 +66,9 @@ export function ApiEnvelopeResponse<TModel extends Type<unknown>>(
   );
 }
 
-// Document the error responses the app can actually emit (400/401/404/409/500), all sharing the
-// error envelope DTO. 403/422/429 are intentionally omitted — nothing raises them yet (YAGNI).
+// Document the error responses the app can actually emit (400/401/404/409/422/500), all sharing the
+// error envelope DTO. 422 = validation (ZodValidationException → UNPROCESSABLE_ENTITY).
+// 403/429 intentionally omitted — nothing raises them yet (YAGNI).
 export function ApiStandardErrorResponses() {
   return applyDecorators(
     ApiExtraModels(ErrorResponseDto),
@@ -74,6 +76,7 @@ export function ApiStandardErrorResponses() {
     ApiUnauthorizedResponse({ type: ErrorResponseDto }),
     ApiNotFoundResponse({ type: ErrorResponseDto }),
     ApiConflictResponse({ type: ErrorResponseDto }),
+    ApiUnprocessableEntityResponse({ type: ErrorResponseDto }),
     ApiInternalServerErrorResponse({ type: ErrorResponseDto }),
   );
 }

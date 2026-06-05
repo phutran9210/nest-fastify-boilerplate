@@ -44,13 +44,13 @@ describe('HttpExceptionFilter', () => {
     expect(body().error.code).toBe('CONFLICT');
   });
 
-  it('flattens ZodValidationException issues into error.details with VALIDATION_ERROR code', () => {
+  it('flattens ZodValidationException issues into error.details with 422 / UNPROCESSABLE_ENTITY', () => {
     const zodError = new ZodError([
       { code: 'custom', path: ['email'], message: 'Invalid email' } as never,
     ]);
     filter.catch(new ZodValidationException(zodError), host(req, res));
-    expect(res.status).toHaveBeenCalledWith(400);
-    expect(body().error.code).toBe('VALIDATION_ERROR');
+    expect(res.status).toHaveBeenCalledWith(422);
+    expect(body().error.code).toBe('UNPROCESSABLE_ENTITY');
     expect(body().error.details).toEqual([{ field: 'email', message: 'Invalid email' }]);
   });
 
@@ -61,10 +61,10 @@ describe('HttpExceptionFilter', () => {
     expect(body().error.details).toBeUndefined();
   });
 
-  it('maps unknown errors to 500 / INTERNAL_ERROR', () => {
+  it('maps unknown errors to 500 / INTERNAL_SERVER_ERROR', () => {
     filter.catch(new Error('boom'), host(req, res));
     expect(res.status).toHaveBeenCalledWith(500);
-    expect(body().error.code).toBe('INTERNAL_ERROR');
+    expect(body().error.code).toBe('INTERNAL_SERVER_ERROR');
   });
 
   it('hides the unknown-error message in production', () => {
@@ -73,14 +73,14 @@ describe('HttpExceptionFilter', () => {
     expect(body().error.message).toBe('Internal server error');
   });
 
-  it('maps ZodSerializationException to 500 / INTERNAL_ERROR, logs server-side, no leaked details', () => {
+  it('maps ZodSerializationException to 500 / INTERNAL_SERVER_ERROR, logs server-side, no leaked details', () => {
     const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
     const zodError = new ZodError([
       { code: 'custom', path: ['createdAt'], message: 'Expected string' } as never,
     ]);
     filter.catch(new ZodSerializationException(zodError), host(req, res));
     expect(res.status).toHaveBeenCalledWith(500);
-    expect(body().error.code).toBe('INTERNAL_ERROR');
+    expect(body().error.code).toBe('INTERNAL_SERVER_ERROR');
     expect(body().error.message).toBe('Internal server error');
     expect(body().error.details).toBeUndefined();
     expect(errorSpy).toHaveBeenCalled();

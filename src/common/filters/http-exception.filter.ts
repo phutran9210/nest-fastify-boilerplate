@@ -10,8 +10,13 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { ZodSerializationException, ZodValidationException } from 'nestjs-zod';
 import { ZodError } from 'zod';
-import { ErrorCode, statusToErrorCode } from '../errors/error-code';
 import type { ErrorDetail, ErrorResponse } from '../http/response.types';
+
+// Machine-readable code = tên hằng của Nest HttpStatus (reverse-mapping numeric enum).
+// vd 404 -> 'NOT_FOUND', 422 -> 'UNPROCESSABLE_ENTITY'. Status lạ -> 'HTTP_<status>'.
+function codeFromStatus(status: number): string {
+  return HttpStatus[status] ?? `HTTP_${status}`;
+}
 
 // Pull a human-readable message out of a Nest HttpException (body can be a string or an
 // object with a string/array `message`).
@@ -51,9 +56,6 @@ export class HttpExceptionFilter implements ExceptionFilter {
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let message = 'Internal server error';
     let details: ErrorDetail[] | undefined;
-    // Most codes derive from the HTTP status, but a few branches (validation) need an explicit
-    // code that differs from the status default (400 -> BAD_REQUEST vs VALIDATION_ERROR).
-    let code: string | undefined;
 
     if (exception instanceof ZodSerializationException) {
       // Response did not match its DTO — a server bug. Log it; never leak details to the client.
@@ -65,8 +67,8 @@ export class HttpExceptionFilter implements ExceptionFilter {
       message = 'Internal server error';
     } else if (exception instanceof ZodValidationException) {
       // Must be checked before HttpException — ZodValidationException extends BadRequestException.
-      status = HttpStatus.BAD_REQUEST;
-      code = ErrorCode.VALIDATION_ERROR;
+      // Báo 422 UNPROCESSABLE_ENTITY: code suy ra từ status, tách biệt với 400 BAD_REQUEST chung.
+      status = HttpStatus.UNPROCESSABLE_ENTITY;
       message = 'Validation failed';
       const zodError = exception.getZodError();
       if (zodError instanceof ZodError) {
@@ -97,7 +99,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const responseBody: ErrorResponse = {
       success: false,
       error: {
-        code: code ?? statusToErrorCode(status),
+        code: codeFromStatus(status),
         message,
         ...(details ? { details } : {}),
       },

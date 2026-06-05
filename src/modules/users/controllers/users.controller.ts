@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiCreatedResponse, ApiOkResponse, ApiTags } from '@nest
 import { ZodSerializerDto } from 'nestjs-zod';
 import { CreateUserDto } from '../dto/create-user.dto';
 import { ListUsersQueryDto } from '../dto/list-users-query.dto';
+import { PaginatedUsersResponseDto } from '../dto/paginated-users-response.dto';
 import { UpdateUserDto } from '../dto/update-user.dto';
 import { UserResponseDto } from '../dto/user-response.dto';
 import { UsersService } from '../services/users.service';
@@ -21,10 +22,11 @@ export class UsersController {
   }
 
   @Get()
-  @ZodSerializerDto(UserResponseDto)
-  @ApiOkResponse({ type: [UserResponseDto] })
-  findAll(@Query() query: ListUsersQueryDto) {
-    return this.users.findAll(query);
+  @ZodSerializerDto(PaginatedUsersResponseDto)
+  @ApiOkResponse({ type: PaginatedUsersResponseDto })
+  async findAll(@Query() query: ListUsersQueryDto) {
+    const { items, total } = await this.users.findAll(query);
+    return { items, total, page: query.page, limit: query.limit };
   }
 
   @Get(':id')

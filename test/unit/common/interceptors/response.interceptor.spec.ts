@@ -1,5 +1,5 @@
 import { lastValueFrom, of } from 'rxjs';
-import { ResponseInterceptor } from './response.interceptor';
+import { ResponseInterceptor } from '@common/interceptors/response.interceptor';
 
 function httpContext(req: unknown, res: unknown) {
   return {

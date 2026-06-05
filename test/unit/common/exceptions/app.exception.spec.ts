@@ -1,5 +1,5 @@
 import { HttpStatus } from '@nestjs/common';
-import { AppException } from './app.exception';
+import { AppException } from '@common/exceptions/app.exception';
 
 describe('AppException', () => {
   it('carries messageKey as the HttpException message and the given status', () => {

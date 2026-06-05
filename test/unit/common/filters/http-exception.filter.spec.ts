@@ -7,8 +7,8 @@ import {
 } from '@nestjs/common';
 import { ZodSerializationException, ZodValidationException } from 'nestjs-zod';
 import { ZodError } from 'zod';
-import { AppException } from '../exceptions/app.exception';
-import { HttpExceptionFilter } from './http-exception.filter';
+import { AppException } from '@common/exceptions/app.exception';
+import { HttpExceptionFilter } from '@common/filters/http-exception.filter';
 
 function host(req: unknown, res: unknown) {
   return {

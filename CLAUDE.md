@@ -103,7 +103,7 @@ src/
     │   ├── users.module.ts
     │   ├── controllers/
     │   ├── decorators/    # Swagger gom tap trung — composite @Api*()
-    │   ├── services/      # *.service.ts + *.service.spec.ts
+    │   ├── services/      # *.service.ts (test o test/unit/, KHONG colocated)
     │   ├── repositories/  # *.repository.port.ts (PORT) + *.repository.prisma.ts (IMPL)
     │   └── dto/
     ├── auth/
@@ -133,9 +133,16 @@ src/
 
 Xem `src/modules/users/` la module tham chieu chinh xac nhat.
 
-### Tests
-- File `*.spec.ts` dat CUNG THU MUC voi source (khong dung `__tests__/`).
-  - Service spec dat trong `services/`: `services/<feature>.service.spec.ts`.
+### Tests — tach rieng trong `test/`, KHONG colocated
+- Test KHONG nam canh source nua. Cay `test/` phan chieu cau truc `src/`:
+  - **Unit**: `test/unit/<duong-dan-mirror-src>/<ten>.spec.ts`.
+    - Vi du: source `src/modules/users/services/users.service.ts` → test `test/unit/modules/users/services/users.service.spec.ts`.
+  - **E2E / integration**: `test/e2e/*.e2e-spec.ts` (dat dan khi can).
+  - KHONG dung `__tests__/`.
+- **Import source trong test luon dung path alias** (`@common/*`, `@core/*`, `@modules/*`, `@generated/*`) — vi test nam ngoai module nen khong dung relative. (Quy uoc "relative trong cung module" o tren CHI ap dung cho file source trong `src/`.)
+- Cau hinh:
+  - `jest.config.js`: `rootDir: '.'`, `roots: ['<rootDir>/test']`, alias `moduleNameMapper` tro vao `src/`.
+  - `tsconfig.spec.json` (`include: ['src','test']`, `rootDir: '.'`) cho typecheck test — `pnpm typecheck` chay file nay. Build (`tsconfig.build.json`) van loai `test` + `*.spec.ts`.
 - Mock **repository PORT** bang plain object `useValue` — khong mock `PrismaService`.
 - Goi `jest.clearAllMocks()` trong `beforeEach`.
 
@@ -149,5 +156,5 @@ Xem `src/modules/users/` la module tham chieu chinh xac nhat.
 | `/review-code` | Review chat luong theo 11 tieu chi (co tieu chi kien truc) |
 | `/create-module` | Sinh feature module feature-first day du (repository port + Prisma impl + nestjs-zod) |
 | `/create-dto` | Sinh Zod DTO: create / update / response / query |
-| `/create-test` | Sinh Jest spec colocated ben canh source (mock repository PORT) |
+| `/create-test` | Sinh Jest spec trong `test/unit/` (mirror src), mock repository PORT |
 | `/create-tdd` | Workflow red-green-refactor co huong dan |

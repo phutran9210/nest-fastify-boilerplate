@@ -3,7 +3,7 @@ import { UsersService } from '@modules/users/services/users.service';
 import { JwtService } from '@nestjs/jwt';
 import { Test } from '@nestjs/testing';
 import * as bcrypt from 'bcrypt';
-import { AuthService } from './auth.service';
+import { AuthService } from '@modules/auth/services/auth.service';
 
 describe('AuthService', () => {
   let service: AuthService;

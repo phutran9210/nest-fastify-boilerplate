@@ -1,15 +1,17 @@
 # /create-test — Tạo Jest unit test cho service hoặc controller
 
-Đọc file nguồn tại `$ARGUMENTS`, rồi tạo file spec colocated kế bên nó.
+Đọc file nguồn tại `$ARGUMENTS`, rồi tạo file spec trong cây `test/unit/` (phản chiếu cấu trúc `src/`).
 
 ## Quy tắc đặt file
 
-File test phải nằm **cùng thư mục** với file nguồn. Ví dụ:
+Test KHÔNG colocated. File spec nằm trong `test/unit/` theo đúng đường dẫn mirror của `src/`. Ví dụ:
 
 - Nguồn: `src/modules/users/services/users.service.ts`
-- Test:   `src/modules/users/services/users.service.spec.ts`
+- Test:   `test/unit/modules/users/services/users.service.spec.ts`
 
-KHÔNG đặt test trong `__tests__/`. Không tạo thư mục riêng.
+KHÔNG đặt test trong `__tests__/` và KHÔNG đặt kế bên file nguồn.
+
+**Import source trong test luôn dùng path alias** (`@common/*`, `@core/*`, `@modules/*`, `@generated/*`) — KHÔNG dùng relative `./` hay `../` để trỏ về `src/`. Ví dụ: `import { UsersService } from '@modules/users/services/users.service'`.
 
 ## Cấu trúc module test
 
@@ -20,8 +22,8 @@ Dùng `Test.createTestingModule` với tất cả dependency được mock bằn
 ```ts
 import { Test } from '@nestjs/testing';
 import { NotFoundException } from '@nestjs/common';
-import { ProductRepository } from '../repositories/product.repository.port';
-import { ProductsService } from './products.service';
+import { ProductRepository } from '@modules/products/repositories/product.repository.port';
+import { ProductsService } from '@modules/products/services/products.service';
 
 describe('ProductsService', () => {
   let service: ProductsService;
@@ -88,7 +90,7 @@ const users = { findByEmail: jest.fn(), create: jest.fn() };
 ## Các bước thực hiện
 
 1. Đọc file tại `$ARGUMENTS` để hiểu class, constructor dependencies, và các method public.
-2. Xác định tên file spec: thay `.ts` thành `.spec.ts`, giữ nguyên đường dẫn thư mục.
+2. Xác định đường dẫn file spec: lấy đường dẫn nguồn dưới `src/`, đổi tiền tố `src/` → `test/unit/`, đổi `.ts` → `.spec.ts`. Vd `src/modules/users/services/users.service.ts` → `test/unit/modules/users/services/users.service.spec.ts`. Tạo thư mục cha nếu chưa có.
 3. Tạo mock object cho từng dependency:
    - Nếu service inject repository PORT (abstract class) → mock PORT đó bằng plain object.
    - Nếu service inject một service khác → mock service đó bằng plain object.
@@ -105,5 +107,5 @@ const users = { findByEmail: jest.fn(), create: jest.fn() };
 pnpm test
 
 # Chạy riêng file vừa tạo
-pnpm test src/modules/users/services/users.service.spec.ts
+pnpm test test/unit/modules/users/services/users.service.spec.ts
 ```

@@ -10,7 +10,7 @@ Dung lenh nay de phat trien tinh nang hoac sua loi theo quy trinh TDD (Test-Driv
 
 Viet test TRUOC KHI co bat ky code implementation nao. Tuan theo quy uoc cua lenh `/create-test`:
 
-- File test dat cung thu muc voi file nguon, ten dang `*.spec.ts`
+- File test dat trong `test/unit/` (mirror cau truc `src/`), ten dang `*.spec.ts` — KHONG colocated. Import source bang path alias (`@modules/*`, `@common/*`…)
 - Mock bang plain object `useValue`, KHONG dung `jest.fn()` la gia tri truc tiep
 - Goi `jest.clearAllMocks()` trong `beforeEach`
 - Ten test mo ta hanh vi (behavior-style), vi du: `it('should throw NotFoundException when user not found', ...)`

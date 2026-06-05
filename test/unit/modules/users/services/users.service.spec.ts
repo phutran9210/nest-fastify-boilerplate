@@ -1,7 +1,7 @@
 import { AppException } from '@common/exceptions/app.exception';
 import { Test } from '@nestjs/testing';
-import { UserRepository } from '../repositories/user.repository.port';
-import { UsersService } from './users.service';
+import { UserRepository } from '@modules/users/repositories/user.repository.port';
+import { UsersService } from '@modules/users/services/users.service';
 
 describe('UsersService', () => {
   let service: UsersService;

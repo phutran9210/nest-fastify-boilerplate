@@ -1,14 +1,16 @@
 module.exports = {
   moduleFileExtensions: ['js', 'json', 'ts'],
-  rootDir: 'src',
+  rootDir: '.',
+  // Test tách khỏi source: unit ở test/unit/ (mirror src/), e2e ở test/e2e/.
+  roots: ['<rootDir>/test'],
   testRegex: '.*\\.spec\\.ts$',
   transform: { '^.+\\.(t|j)s$': '@swc/jest' },
-  // rootDir = src, nên alias trỏ thẳng vào các thư mục con của src.
+  // Alias trỏ vào source dưới src/.
   moduleNameMapper: {
-    '^@common/(.*)$': '<rootDir>/common/$1',
-    '^@core/(.*)$': '<rootDir>/core/$1',
-    '^@modules/(.*)$': '<rootDir>/modules/$1',
-    '^@generated/(.*)$': '<rootDir>/generated/$1',
+    '^@common/(.*)$': '<rootDir>/src/common/$1',
+    '^@core/(.*)$': '<rootDir>/src/core/$1',
+    '^@modules/(.*)$': '<rootDir>/src/modules/$1',
+    '^@generated/(.*)$': '<rootDir>/src/generated/$1',
   },
   testEnvironment: 'node',
 };

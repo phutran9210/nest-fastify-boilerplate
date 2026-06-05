@@ -11,7 +11,7 @@
     "format": "biome format --write .",
     "lint": "biome check .",
     "check": "biome check --write .",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.spec.json --noEmit",
     "i18n:gen": "nestjs-i18n -p src/i18n -o src/generated/i18n.generated.ts --include-subfolders",
     "i18n:gen:watch": "nestjs-i18n -p src/i18n -o src/generated/i18n.generated.ts --include-subfolders --watch",
     "verify": "pnpm i18n:gen && pnpm check && pnpm typecheck && pnpm build",

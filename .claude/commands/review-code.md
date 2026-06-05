@@ -211,7 +211,8 @@ Kiểm tra việc tuân thủ kiến trúc feature-first và repository port pat
 
 - **`common/` vs `core/`**: cross-cutting concerns (decorators, filters, guards, interceptors) thuộc `src/common/`; infrastructure (config, prisma, queue, messaging, health) thuộc `src/core/`. FAIL nếu đặt nhầm tầng.
 - **Service không được gọi `this.prisma.*` trực tiếp** và không được import từ `generated/prisma` — FAIL nếu vi phạm.
-- **Chỉ `prisma-<feature>.repository.ts`** được import `PrismaService` và `generated/prisma` — FAIL nếu service hay controller làm vậy.
+- **Chỉ `<feature>.repository.prisma.ts`** được import `PrismaService` và `generated/prisma` — FAIL nếu service hay controller làm vậy.
+- **Naming repository theo vai trò**: PORT = `<feature>.repository.port.ts`, IMPL = `<feature>.repository.prisma.ts` — WARN nếu dùng tên cũ (`<feature>.repository.ts` / `prisma-<feature>.repository.ts`).
 - **Wiring port ↔ impl tồn tại** trong module: `{ provide: <Feature>Repository, useClass: Prisma<Feature>Repository }` — FAIL nếu thiếu, vì NestJS sẽ không resolve được dependency.
 - **Service inject PORT** (abstract class), không inject impl trực tiếp — WARN nếu inject impl.
 - Cấu trúc thư mục đúng: `controllers/`, `services/`, `repositories/`, `dto/` — WARN nếu files nằm phẳng ở root module.

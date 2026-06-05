@@ -1,3 +1,4 @@
+// ADAPTER — implement PORT bằng Prisma. File DUY NHẤT trong module được import PrismaService + generated/.
 import { PrismaService } from '@core/prisma/prisma.service';
 import { Prisma, type User } from '@generated/prisma/client';
 import {
@@ -11,7 +12,7 @@ import {
   type FindUsersParams,
   type UpdateUserData,
   UserRepository,
-} from './user.repository';
+} from './user.repository.port';
 
 @Injectable()
 export class PrismaUserRepository extends UserRepository {

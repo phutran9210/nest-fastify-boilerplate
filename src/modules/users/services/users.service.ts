@@ -4,7 +4,7 @@ import {
   type UpdateUserData,
   type User,
   UserRepository,
-} from '../repositories/user.repository';
+} from '../repositories/user.repository.port';
 
 @Injectable()
 export class UsersService {

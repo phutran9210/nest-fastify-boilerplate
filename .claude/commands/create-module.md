@@ -22,7 +22,7 @@ Nếu input là `product-category`, điều chỉnh tương ứng: `productCateg
 
 ## BƯỚC 1 (bắt buộc) — Kiểm tra model Prisma trước khi tạo code
 
-Đây là bước quan trọng nhất, và càng quan trọng hơn với kiến trúc repository port: file `prisma-<feature>.repository.ts` gọi `this.prisma.<feature>` — nếu model chưa có trong Prisma schema thì Prisma client chưa tạo ra accessor đó và **code sẽ không biên dịch được**.
+Đây là bước quan trọng nhất, và càng quan trọng hơn với kiến trúc repository port: file `<feature>.repository.prisma.ts` gọi `this.prisma.<feature>` — nếu model chưa có trong Prisma schema thì Prisma client chưa tạo ra accessor đó và **code sẽ không biên dịch được**.
 
 Thực hiện theo thứ tự sau:
 
@@ -59,8 +59,8 @@ src/modules/<feature>/
 │   ├── <feature>.service.ts
 │   └── <feature>.service.spec.ts
 ├── repositories/
-│   ├── <feature>.repository.ts        # PORT — abstract class + re-export types
-│   └── prisma-<feature>.repository.ts # IMPL — duy nhất import PrismaService
+│   ├── <feature>.repository.port.ts    # PORT — abstract class + re-export types
+│   └── <feature>.repository.prisma.ts  # IMPL — duy nhất import PrismaService
 └── dto/
     ├── create-<feature>.dto.ts
     ├── update-<feature>.dto.ts
@@ -77,7 +77,7 @@ Tham chiếu cụ thể: xem `src/modules/users/` để nắm đúng hình dạn
 
 ## BƯỚC 3 — Nội dung từng file (dùng `Product` / `Products` / `product` làm ví dụ)
 
-### `repositories/product.repository.ts` — PORT
+### `repositories/product.repository.port.ts` — PORT
 
 ```ts
 import type { Product } from '@generated/prisma/client';
@@ -105,13 +105,13 @@ export abstract class ProductRepository {
 
 ---
 
-### `repositories/prisma-product.repository.ts` — IMPL
+### `repositories/product.repository.prisma.ts` — IMPL
 
 ```ts
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '@core/prisma/prisma.service';
 import type { Product } from '@generated/prisma/client';
-import { type CreateProductData, type UpdateProductData, ProductRepository } from './product.repository';
+import { type CreateProductData, type UpdateProductData, ProductRepository } from './product.repository.port';
 
 @Injectable()
 export class PrismaProductRepository extends ProductRepository {
@@ -154,7 +154,7 @@ import {
   type UpdateProductData,
   type Product,
   ProductRepository,
-} from '../repositories/product.repository';
+} from '../repositories/product.repository.port';
 
 @Injectable()
 export class ProductsService {
@@ -330,8 +330,8 @@ Ghi chú:
 ```ts
 import { Module } from '@nestjs/common';
 import { ProductsController } from './controllers/products.controller';
-import { PrismaProductRepository } from './repositories/prisma-product.repository';
-import { ProductRepository } from './repositories/product.repository';
+import { ProductRepository } from './repositories/product.repository.port';
+import { PrismaProductRepository } from './repositories/product.repository.prisma';
 import { ProductsService } from './services/products.service';
 
 @Module({
@@ -369,7 +369,7 @@ Tạo file spec theo lệnh `/create-test`, truyền vào đường dẫn servic
 ```ts
 import { Test } from '@nestjs/testing';
 import { NotFoundException } from '@nestjs/common';
-import { ProductRepository } from '../repositories/product.repository';
+import { ProductRepository } from '../repositories/product.repository.port';
 import { ProductsService } from './products.service';
 
 describe('ProductsService', () => {
@@ -456,5 +456,5 @@ Nếu có lỗi liên quan đến Prisma types (`Product`, `this.prisma.product`
 - KHÔNG tạo file `index.ts` barrel export.
 - KHÔNG tự ghi đè `prisma/schema.prisma`.
 - KHÔNG inject `PrismaService` vào service — chỉ inject qua repository PORT.
-- KHÔNG import `generated/prisma` từ service — chỉ `prisma-<feature>.repository.ts` được làm vậy.
+- KHÔNG import `generated/prisma` từ service — chỉ `<feature>.repository.prisma.ts` được làm vậy.
 - KHÔNG tạo cấu trúc phẳng (flat) — luôn dùng `controllers/`, `services/`, `repositories/`, `dto/`.

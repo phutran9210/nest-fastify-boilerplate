@@ -20,7 +20,7 @@ Dùng `Test.createTestingModule` với tất cả dependency được mock bằn
 ```ts
 import { Test } from '@nestjs/testing';
 import { NotFoundException } from '@nestjs/common';
-import { ProductRepository } from '../repositories/product.repository';
+import { ProductRepository } from '../repositories/product.repository.port';
 import { ProductsService } from './products.service';
 
 describe('ProductsService', () => {

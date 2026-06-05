@@ -1,6 +1,6 @@
 import { NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { UserRepository } from '../repositories/user.repository';
+import { UserRepository } from '../repositories/user.repository.port';
 import { UsersService } from './users.service';
 
 describe('UsersService', () => {

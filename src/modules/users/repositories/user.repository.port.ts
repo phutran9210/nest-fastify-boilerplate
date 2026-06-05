@@ -1,3 +1,5 @@
+// PORT (hợp đồng) — abstract class vừa là TS type vừa là DI token. KHÔNG biết gì về Prisma.
+// Impl thật: user.repository.prisma.ts · Wiring: users.module.ts.
 import type { User } from '@generated/prisma/client';
 
 // Re-export shape model qua port → service/test phụ thuộc PORT, không import generated/ trực tiếp.

@@ -94,7 +94,7 @@ Single-tenant. Cấu trúc module theo **feature-first** với phân tầng rõ 
 
 ```ts
 // ✅ Đúng — cùng module dùng relative, vượt cấp dùng alias
-import { UserRepository } from '../repositories/user.repository';
+import { UserRepository } from '../repositories/user.repository.port';
 import { PrismaService } from '@core/prisma/prisma.service';
 import { UserResponseDto } from '@modules/users/dto/user-response.dto';
 import { User } from '@generated/prisma/client';
@@ -227,14 +227,15 @@ create(@Body() dto: CreateUserDto) { ... }
 ### 7. Data access — Repository port pattern
 
 - ✅ **Service inject PORT** (`abstract class <Feature>Repository`) — KHÔNG inject `PrismaService` trực tiếp
-- ✅ **Port** (`repositories/<feature>.repository.ts`) là `abstract class <Feature>Repository` — đóng vai trò là TS type VÀ DI token; re-export model type qua `export type { <Model> }`; định nghĩa `Create<Feature>Data` và `Update<Feature>Data`
-- ✅ **Prisma impl** (`repositories/prisma-<feature>.repository.ts`) là class `@Injectable() Prisma<Feature>Repository extends <Feature>Repository` — file DUY NHẤT import `PrismaService` và `generated/prisma`
+- ✅ **Naming theo vai trò (suffix)**: PORT = `<feature>.repository.port.ts`, IMPL = `<feature>.repository.prisma.ts` — nhìn đuôi file biết ngay vai trò (đổi adapter → `.mongo.ts`, `.http.ts`…)
+- ✅ **Port** (`repositories/<feature>.repository.port.ts`) là `abstract class <Feature>Repository` — đóng vai trò là TS type VÀ DI token; re-export model type qua `export type { <Model> }`; định nghĩa `Create<Feature>Data` và `Update<Feature>Data`
+- ✅ **Prisma impl** (`repositories/<feature>.repository.prisma.ts`) là class `@Injectable() Prisma<Feature>Repository extends <Feature>Repository` — file DUY NHẤT import `PrismaService` và `generated/prisma`
 - ✅ **Module wiring**: `{ provide: <Feature>Repository, useClass: Prisma<Feature>Repository }`
 - ✅ Service import kiểu model TỪ PORT (không import từ `generated/prisma` trực tiếp)
 - ❌ Service KHÔNG được gọi `this.prisma.*` hay import `generated/prisma`
 
 ```ts
-// ✅ Đúng — port (repositories/user.repository.ts)
+// ✅ Đúng — port (repositories/user.repository.port.ts)
 export type { User };
 export type CreateUserData = { email: string; password: string; name?: string | null };
 export abstract class UserRepository {
@@ -243,7 +244,7 @@ export abstract class UserRepository {
   // ...
 }
 
-// ✅ Đúng — Prisma impl (repositories/prisma-user.repository.ts)
+// ✅ Đúng — Prisma impl (repositories/user.repository.prisma.ts)
 import { PrismaService } from '@core/prisma/prisma.service';
 import type { User } from '@generated/prisma/client';
 @Injectable()
@@ -253,7 +254,7 @@ export class PrismaUserRepository extends UserRepository {
 }
 
 // ✅ Đúng — service inject PORT
-import { type User, UserRepository } from '../repositories/user.repository';
+import { type User, UserRepository } from '../repositories/user.repository.port';
 @Injectable()
 export class UsersService {
   constructor(private readonly users: UserRepository) {}

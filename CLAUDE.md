@@ -92,7 +92,7 @@ src/
     │   ├── controllers/
     │   ├── decorators/    # Swagger gom tap trung — composite @Api*()
     │   ├── services/      # *.service.ts + *.service.spec.ts
-    │   ├── repositories/  # port + prisma impl
+    │   ├── repositories/  # *.repository.port.ts (PORT) + *.repository.prisma.ts (IMPL)
     │   └── dto/
     ├── auth/
     ├── mail/
@@ -113,8 +113,9 @@ src/
 ### Repository port pattern — data access
 
 - **Service inject PORT** (`abstract class <Feature>Repository`) — KHONG inject `PrismaService` truc tiep.
-- **PORT** (`repositories/<feature>.repository.ts`): `abstract class` dong vai tro TS type VA DI token; re-export model type qua `export type { <Model> }`; dinh nghia `Create<F>Data` / `Update<F>Data`.
-- **Prisma impl** (`repositories/prisma-<feature>.repository.ts`): file DUY NHAT import `PrismaService` va `generated/prisma`.
+- **Naming theo vai tro (suffix):** PORT = `<feature>.repository.port.ts`, IMPL = `<feature>.repository.prisma.ts` — nhin duoi file la biet vai tro. Doi adapter khac → `<feature>.repository.<adapter>.ts` (vd `.mongo.ts`).
+- **PORT** (`repositories/<feature>.repository.port.ts`): `abstract class` dong vai tro TS type VA DI token; re-export model type qua `export type { <Model> }`; dinh nghia `Create<F>Data` / `Update<F>Data`.
+- **Prisma impl** (`repositories/<feature>.repository.prisma.ts`): file DUY NHAT import `PrismaService` va `generated/prisma`.
 - **Module wiring**: `{ provide: <Feature>Repository, useClass: Prisma<Feature>Repository }`.
 - Service import kieu model TU PORT, khong import tu `generated/prisma` truc tiep.
 

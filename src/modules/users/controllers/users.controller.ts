@@ -1,7 +1,8 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiCreatedResponse, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import { ZodSerializerDto } from 'nestjs-zod';
 import { CreateUserDto } from '../dto/create-user.dto';
+import { ListUsersQueryDto } from '../dto/list-users-query.dto';
 import { UpdateUserDto } from '../dto/update-user.dto';
 import { UserResponseDto } from '../dto/user-response.dto';
 import { UsersService } from '../services/users.service';
@@ -22,8 +23,8 @@ export class UsersController {
   @Get()
   @ZodSerializerDto(UserResponseDto)
   @ApiOkResponse({ type: [UserResponseDto] })
-  findAll() {
-    return this.users.findAll();
+  findAll(@Query() query: ListUsersQueryDto) {
+    return this.users.findAll(query);
   }
 
   @Get(':id')

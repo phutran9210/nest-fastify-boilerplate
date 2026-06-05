@@ -1,3 +1,4 @@
+import { Temporal } from '@js-temporal/polyfill';
 import { Controller, Get } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Public } from '../../common/decorators/public.decorator';
@@ -8,6 +9,6 @@ export class HealthController {
   @Public()
   @Get()
   check() {
-    return { status: 'ok', timestamp: new Date().toISOString() };
+    return { status: 'ok', timestamp: Temporal.Now.instant().toString() };
   }
 }

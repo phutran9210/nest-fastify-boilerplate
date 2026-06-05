@@ -14,8 +14,9 @@ export class UsersService {
     return this.users.create(data);
   }
 
-  findAll(): Promise<User[]> {
-    return this.users.findAll();
+  findAll(params: { page: number; limit: number }): Promise<User[]> {
+    const { page, limit } = params;
+    return this.users.findAll({ skip: (page - 1) * limit, take: limit });
   }
 
   findByEmail(email: string): Promise<User | null> {

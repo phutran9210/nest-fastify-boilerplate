@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Post } from '@nestjs/common';
-import { ApiBearerAuth, ApiCreatedResponse, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiCreatedResponse, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import { ZodSerializerDto } from 'nestjs-zod';
 import { type AuthUser, CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { Public } from '../../../common/decorators/public.decorator';
@@ -23,12 +23,14 @@ export class AuthController {
 
   @Public()
   @Post('login')
+  @ApiOkResponse({ description: 'JWT access token' })
   login(@Body() dto: LoginDto) {
     return this.auth.login(dto);
   }
 
   @ApiBearerAuth()
   @Get('me')
+  @ApiOkResponse({ description: 'The current authenticated user' })
   me(@CurrentUser() user: AuthUser) {
     return user;
   }

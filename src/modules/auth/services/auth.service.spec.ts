@@ -1,4 +1,4 @@
-import { UnauthorizedException } from '@nestjs/common';
+import { ConflictException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Test } from '@nestjs/testing';
 import * as bcrypt from 'bcrypt';
@@ -36,5 +36,24 @@ describe('AuthService', () => {
     await expect(service.login({ email: 'a@b.com', password: 'wrongpass' })).rejects.toBeInstanceOf(
       UnauthorizedException,
     );
+  });
+
+  it('register throws Conflict when the email is already taken', async () => {
+    users.findByEmail.mockResolvedValue({ id: '1', email: 'a@b.com', password: 'hash', name: 'A' });
+    await expect(
+      service.register({ email: 'a@b.com', password: 'password123' }),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(users.create).not.toHaveBeenCalled();
+  });
+
+  it('register hashes the password before creating the user', async () => {
+    users.findByEmail.mockResolvedValue(null);
+    users.create.mockImplementation((data) => Promise.resolve({ id: '1', ...data }));
+    const result = await service.register({ email: 'a@b.com', password: 'password123', name: 'A' });
+    const created = users.create.mock.calls[0][0];
+    expect(created.email).toBe('a@b.com');
+    expect(created.password).not.toBe('password123');
+    await expect(bcrypt.compare('password123', created.password)).resolves.toBe(true);
+    expect(result.id).toBe('1');
   });
 });

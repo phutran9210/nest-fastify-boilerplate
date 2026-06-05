@@ -1,3 +1,4 @@
+import { NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { UserRepository } from '../repositories/user.repository';
 import { UsersService } from './users.service';
@@ -41,5 +42,46 @@ describe('UsersService', () => {
     repo.findById.mockResolvedValue(null);
     await expect(service.findOne('missing')).rejects.toMatchObject({ status: 404 });
     expect(repo.findById).toHaveBeenCalledWith('missing');
+  });
+
+  it('findAll translates page/limit into skip/take', async () => {
+    repo.findAll.mockResolvedValue([]);
+    await service.findAll({ page: 3, limit: 10 });
+    expect(repo.findAll).toHaveBeenCalledWith({ skip: 20, take: 10 });
+  });
+
+  it('update delegates to the repository after confirming the user exists', async () => {
+    const existing = { id: '1', email: 'a@b.com', password: 'hash', name: null };
+    const updated = { ...existing, name: 'B' };
+    repo.findById.mockResolvedValue(existing);
+    repo.update.mockResolvedValue(updated);
+    const result = await service.update('1', { name: 'B' });
+    expect(repo.findById).toHaveBeenCalledWith('1');
+    expect(repo.update).toHaveBeenCalledWith('1', { name: 'B' });
+    expect(result).toBe(updated);
+  });
+
+  it('update throws NotFoundException and does not write when the user is missing', async () => {
+    repo.findById.mockResolvedValue(null);
+    await expect(service.update('missing', { name: 'B' })).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(repo.update).not.toHaveBeenCalled();
+  });
+
+  it('remove delegates to the repository after confirming the user exists', async () => {
+    const existing = { id: '1', email: 'a@b.com', password: 'hash', name: null };
+    repo.findById.mockResolvedValue(existing);
+    repo.delete.mockResolvedValue(existing);
+    const result = await service.remove('1');
+    expect(repo.findById).toHaveBeenCalledWith('1');
+    expect(repo.delete).toHaveBeenCalledWith('1');
+    expect(result).toBe(existing);
+  });
+
+  it('remove throws NotFoundException and does not delete when the user is missing', async () => {
+    repo.findById.mockResolvedValue(null);
+    await expect(service.remove('missing')).rejects.toBeInstanceOf(NotFoundException);
+    expect(repo.delete).not.toHaveBeenCalled();
   });
 });

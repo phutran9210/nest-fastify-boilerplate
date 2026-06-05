@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
@@ -8,7 +9,14 @@ import { cleanupOpenApiDoc } from 'nestjs-zod';
 import { AppModule } from './app.module';
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter());
+  const app = await NestFactory.create<NestFastifyApplication>(
+    AppModule,
+    new FastifyAdapter({
+      // Reuse an inbound correlation id if present; otherwise generate one. Surfaced back to
+      // the client as `x-request-id` by ResponseInterceptor / HttpExceptionFilter.
+      genReqId: (req) => (req.headers['x-request-id'] as string) ?? randomUUID(),
+    }),
+  );
   const config = app.get(ConfigService);
 
   // Permissive CORS for local/dev. Restrict `origin` (e.g. from an ALLOWED_ORIGINS env var)

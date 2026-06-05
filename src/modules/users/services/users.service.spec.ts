@@ -12,6 +12,7 @@ describe('UsersService', () => {
     create: jest.fn(),
     update: jest.fn(),
     delete: jest.fn(),
+    count: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -44,10 +45,14 @@ describe('UsersService', () => {
     expect(repo.findById).toHaveBeenCalledWith('missing');
   });
 
-  it('findAll translates page/limit into skip/take', async () => {
-    repo.findAll.mockResolvedValue([]);
-    await service.findAll({ page: 3, limit: 10 });
+  it('findAll returns items + total and translates page/limit into skip/take', async () => {
+    const items = [{ id: '1', email: 'a@b.com', password: 'hash', name: null }];
+    repo.findAll.mockResolvedValue(items);
+    repo.count.mockResolvedValue(57);
+    const result = await service.findAll({ page: 3, limit: 10 });
     expect(repo.findAll).toHaveBeenCalledWith({ skip: 20, take: 10 });
+    expect(repo.count).toHaveBeenCalled();
+    expect(result).toEqual({ items, total: 57 });
   });
 
   it('update delegates to the repository after confirming the user exists', async () => {

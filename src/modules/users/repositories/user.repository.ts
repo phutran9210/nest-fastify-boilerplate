@@ -14,4 +14,5 @@ export abstract class UserRepository {
   abstract create(data: CreateUserData): Promise<User>;
   abstract update(id: string, data: UpdateUserData): Promise<User>;
   abstract delete(id: string): Promise<User>;
+  abstract count(): Promise<number>;
 }

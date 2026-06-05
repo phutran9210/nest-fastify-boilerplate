@@ -14,9 +14,16 @@ export class UsersService {
     return this.users.create(data);
   }
 
-  findAll(params: { page: number; limit: number }): Promise<User[]> {
+  async findAll(params: {
+    page: number;
+    limit: number;
+  }): Promise<{ items: User[]; total: number }> {
     const { page, limit } = params;
-    return this.users.findAll({ skip: (page - 1) * limit, take: limit });
+    const [items, total] = await Promise.all([
+      this.users.findAll({ skip: (page - 1) * limit, take: limit }),
+      this.users.count(),
+    ]);
+    return { items, total };
   }
 
   findByEmail(email: string): Promise<User | null> {

@@ -31,6 +31,10 @@ export class PrismaUserRepository extends UserRepository {
     return this.prisma.user.findMany({ skip: params?.skip, take: params?.take });
   }
 
+  count(): Promise<number> {
+    return this.prisma.user.count();
+  }
+
   async create(data: CreateUserData): Promise<User> {
     try {
       return await this.prisma.user.create({ data });

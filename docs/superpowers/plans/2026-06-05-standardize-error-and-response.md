@@ -340,7 +340,7 @@ git commit -m "feat(common): add ResponseInterceptor for success envelope"
 Create `src/common/filters/http-exception.filter.spec.ts`:
 
 ```ts
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { ZodValidationException } from 'nestjs-zod';
 import { ZodError } from 'zod';
 import { HttpExceptionFilter } from './http-exception.filter';
@@ -386,7 +386,7 @@ describe('HttpExceptionFilter', () => {
     expect(body().error.code).toBe('CONFLICT');
   });
 
-  it('flattens ZodValidationException issues into error.details', () => {
+  it('flattens ZodValidationException issues into error.details with VALIDATION_ERROR code', () => {
     const zodError = new ZodError([
       { code: 'custom', path: ['email'], message: 'Invalid email' } as never,
     ]);
@@ -394,6 +394,13 @@ describe('HttpExceptionFilter', () => {
     expect(res.status).toHaveBeenCalledWith(400);
     expect(body().error.code).toBe('VALIDATION_ERROR');
     expect(body().error.details).toEqual([{ field: 'email', message: 'Invalid email' }]);
+  });
+
+  it('maps a plain BadRequestException (non-validation 400) to BAD_REQUEST without details', () => {
+    filter.catch(new BadRequestException('Bad input'), host(req, res));
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(body().error.code).toBe('BAD_REQUEST');
+    expect(body().error.details).toBeUndefined();
   });
 
   it('maps unknown errors to 500 / INTERNAL_ERROR', () => {
@@ -432,7 +439,7 @@ import { ConfigService } from '@nestjs/config';
 import { Temporal } from '@js-temporal/polyfill';
 import { ZodSerializationException, ZodValidationException } from 'nestjs-zod';
 import { ZodError } from 'zod';
-import { statusToErrorCode } from '../errors/error-code';
+import { ErrorCode, statusToErrorCode } from '../errors/error-code';
 import type { ErrorDetail, ErrorResponse } from '../http/response.types';
 
 // Pull a human-readable message out of a Nest HttpException (body can be a string or an
@@ -473,6 +480,9 @@ export class HttpExceptionFilter implements ExceptionFilter {
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let message = 'Internal server error';
     let details: ErrorDetail[] | undefined;
+    // Most codes derive from the HTTP status, but a few branches (validation) need an explicit
+    // code that differs from the status default (400 -> BAD_REQUEST vs VALIDATION_ERROR).
+    let code: string | undefined;
 
     if (exception instanceof ZodSerializationException) {
       // Response did not match its DTO — a server bug. Log it; never leak details to the client.
@@ -485,6 +495,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     } else if (exception instanceof ZodValidationException) {
       // Must be checked before HttpException — ZodValidationException extends BadRequestException.
       status = HttpStatus.BAD_REQUEST;
+      code = ErrorCode.VALIDATION_ERROR;
       message = 'Validation failed';
       const zodError = exception.getZodError();
       if (zodError instanceof ZodError) {
@@ -513,7 +524,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const responseBody: ErrorResponse = {
       success: false,
       error: {
-        code: statusToErrorCode(status),
+        code: code ?? statusToErrorCode(status),
         message,
         ...(details ? { details } : {}),
       },
@@ -785,17 +796,20 @@ git commit -m "feat(users): paginated list response DTO + controller shape"
 
 ---
 
-## Task 7: Swagger — document the envelope (lightweight)
+## Task 7: Swagger — document the envelope (success + error)
 
 **Files:**
 - Create: `src/common/http/error-response.dto.ts`
 - Create: `src/common/http/api-envelope.decorator.ts`
+- Test: `src/common/http/openapi-schema.spec.ts`
 - Modify: `src/modules/users/controllers/users.controller.ts`
 - Modify: `src/modules/auth/controllers/auth.controller.ts`
 
-> Rationale: a single reusable error DTO + two combined decorators keep Swagger accurate without
-> per-field duplication on every route. Success responses are documented via an `allOf` wrap that
-> references the existing item DTOs (no schema duplication).
+> Rationale: a reusable error DTO + two combined decorators keep Swagger accurate without
+> per-field duplication on every route. Success responses ARE wrapped (via `ApiEnvelopeResponse`)
+> so the docs match the runtime envelope — including the 201 create status and paginated meta.
+> Error responses cover every status the app can actually emit today (400/401/404/409/500);
+> 403/422/429 exist in the `ErrorCode` enum but nothing emits them yet, so they are omitted (YAGNI).
 
 - [ ] **Step 1: Create the error-response DTO (for Swagger schema)**
 
@@ -831,75 +845,215 @@ export class ErrorResponseDto extends (createZodDto(errorResponseSchema) as Retu
 Create `src/common/http/api-envelope.decorator.ts`:
 
 ```ts
-import { applyDecorators, type Type } from '@nestjs/common';
+import { applyDecorators, HttpStatus, type Type } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
+  ApiConflictResponse,
   ApiExtraModels,
   ApiInternalServerErrorResponse,
   ApiNotFoundResponse,
-  ApiOkResponse,
+  ApiResponse,
   ApiUnauthorizedResponse,
   getSchemaPath,
 } from '@nestjs/swagger';
 import { ErrorResponseDto } from './error-response.dto';
 
+type EnvelopeOptions = {
+  /** HTTP status to document (default 200; use 201 for create routes). */
+  status?: number;
+  /** When true, `data` is an array and `meta.pagination` is documented (list routes). */
+  paginated?: boolean;
+};
+
+const metaProperties = (paginated: boolean) => {
+  const properties: Record<string, unknown> = {
+    timestamp: { type: 'string' },
+    path: { type: 'string' },
+    requestId: { type: 'string' },
+  };
+  if (paginated) {
+    properties.pagination = {
+      type: 'object',
+      properties: {
+        page: { type: 'number' },
+        limit: { type: 'number' },
+        total: { type: 'number' },
+        totalPages: { type: 'number' },
+        hasNext: { type: 'boolean' },
+        hasPrev: { type: 'boolean' },
+      },
+    };
+  }
+  return { type: 'object', properties };
+};
+
 // Document a success response wrapped in the standard envelope, referencing `model` for `data`.
-export function ApiEnvelopeResponse<TModel extends Type<unknown>>(model: TModel, isArray = false) {
-  const data = isArray
+export function ApiEnvelopeResponse<TModel extends Type<unknown>>(
+  model: TModel,
+  options: EnvelopeOptions = {},
+) {
+  const { status = HttpStatus.OK, paginated = false } = options;
+  const data = paginated
     ? { type: 'array' as const, items: { $ref: getSchemaPath(model) } }
     : { $ref: getSchemaPath(model) };
   return applyDecorators(
     ApiExtraModels(model),
-    ApiOkResponse({
+    ApiResponse({
+      status,
       schema: {
         type: 'object',
         properties: {
           success: { type: 'boolean', example: true },
           data,
-          meta: { type: 'object' },
+          meta: metaProperties(paginated),
         },
       },
     }),
   );
 }
 
-// Document the common error responses with the shared error envelope DTO.
+// Document the error responses the app can actually emit (400/401/404/409/500), all sharing the
+// error envelope DTO. 403/422/429 are intentionally omitted — nothing raises them yet (YAGNI).
 export function ApiStandardErrorResponses() {
   return applyDecorators(
     ApiExtraModels(ErrorResponseDto),
     ApiBadRequestResponse({ type: ErrorResponseDto }),
     ApiUnauthorizedResponse({ type: ErrorResponseDto }),
     ApiNotFoundResponse({ type: ErrorResponseDto }),
+    ApiConflictResponse({ type: ErrorResponseDto }),
     ApiInternalServerErrorResponse({ type: ErrorResponseDto }),
   );
 }
 ```
 
-- [ ] **Step 3: Apply the error decorator to the controllers**
+- [ ] **Step 3: Apply both decorators to the users controller**
 
-In `src/modules/users/controllers/users.controller.ts`, add the import and apply at class level:
+In `src/modules/users/controllers/users.controller.ts`:
+
+Change the swagger import line (drop the now-unused `ApiCreatedResponse`/`ApiOkResponse`):
 
 ```ts
-import { ApiStandardErrorResponses } from '../../../common/http/api-envelope.decorator';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 ```
 
-Add `@ApiStandardErrorResponses()` directly under `@ApiTags('users')` on the controller class.
+Add the envelope import:
 
-In `src/modules/auth/controllers/auth.controller.ts`, add the same import and apply `@ApiStandardErrorResponses()` under `@ApiTags('auth')`.
+```ts
+import { ApiEnvelopeResponse, ApiStandardErrorResponses } from '../../../common/http/api-envelope.decorator';
+```
 
-- [ ] **Step 4: Verify the Swagger document builds (app boots)**
+Add `@ApiStandardErrorResponses()` directly under `@ApiTags('users')` on the controller class, then replace each route's `@ApiCreatedResponse`/`@ApiOkResponse` with the envelope decorator:
+
+```ts
+  @Post()
+  @ZodSerializerDto(UserResponseDto)
+  @ApiEnvelopeResponse(UserResponseDto, { status: 201 })
+  create(@Body() dto: CreateUserDto) {
+    return this.users.create(dto);
+  }
+
+  @Get()
+  @ZodSerializerDto(PaginatedUsersResponseDto)
+  @ApiEnvelopeResponse(UserResponseDto, { paginated: true })
+  async findAll(@Query() query: ListUsersQueryDto) {
+    const { items, total } = await this.users.findAll(query);
+    return { items, total, page: query.page, limit: query.limit };
+  }
+
+  @Get(':id')
+  @ZodSerializerDto(UserResponseDto)
+  @ApiEnvelopeResponse(UserResponseDto)
+  findOne(@Param('id') id: string) {
+    return this.users.findOne(id);
+  }
+
+  @Patch(':id')
+  @ZodSerializerDto(UserResponseDto)
+  @ApiEnvelopeResponse(UserResponseDto)
+  update(@Param('id') id: string, @Body() dto: UpdateUserDto) {
+    return this.users.update(id, dto);
+  }
+
+  @Delete(':id')
+  @ZodSerializerDto(UserResponseDto)
+  @ApiEnvelopeResponse(UserResponseDto)
+  remove(@Param('id') id: string) {
+    return this.users.remove(id);
+  }
+```
+
+> Note: the list `data` schema references `UserResponseDto` (the item), not `PaginatedUsersResponseDto` —
+> the interceptor lifts `items` into `data` at runtime, so the documented shape matches the wire shape.
+
+- [ ] **Step 4: Apply both decorators to the auth controller**
+
+In `src/modules/auth/controllers/auth.controller.ts`:
+
+Change the swagger import line (drop `ApiCreatedResponse`; keep `ApiOkResponse` for the description-only routes):
+
+```ts
+import { ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
+```
+
+Add the envelope import:
+
+```ts
+import { ApiEnvelopeResponse, ApiStandardErrorResponses } from '../../../common/http/api-envelope.decorator';
+```
+
+Add `@ApiStandardErrorResponses()` under `@ApiTags('auth')` on the class, and change `register` to the envelope decorator (leave `login`/`me` as description-only `@ApiOkResponse` — they return non-DTO shapes like `{ accessToken }`, so a description avoids asserting a contradictory schema):
+
+```ts
+  @Public()
+  @Post('register')
+  @ZodSerializerDto(UserResponseDto)
+  @ApiEnvelopeResponse(UserResponseDto, { status: 201 })
+  register(@Body() dto: RegisterDto) {
+    return this.auth.register(dto);
+  }
+```
+
+- [ ] **Step 5: Add a faithful OpenAPI JSON-schema smoke test**
+
+`pnpm build` only compiles TypeScript — it does NOT run `SwaggerModule.createDocument()` /
+`cleanupOpenApiDoc()`, so it cannot prove the Zod→JSON-schema generation is safe. nestjs-zod
+builds DTO OpenAPI metadata via `toJSONSchema(schema, { io: 'input' })` (from `zod/v4/core`).
+This test replicates that exact call so a future `z.date()` regression (which throws even under
+`io: 'input'`) is caught fast, without booting the app or needing a DB.
+
+Create `src/common/http/openapi-schema.spec.ts`:
+
+```ts
+import { toJSONSchema } from 'zod/v4/core';
+import { paginatedUsersResponseSchema } from '../../modules/users/dto/paginated-users-response.dto';
+import { errorResponseSchema } from './error-response.dto';
+
+describe('OpenAPI JSON schema generation (nestjs-zod io=input)', () => {
+  it.each([
+    ['errorResponseSchema', errorResponseSchema],
+    ['paginatedUsersResponseSchema', paginatedUsersResponseSchema],
+  ])('%s is representable as JSON schema', (_name, schema) => {
+    expect(() => toJSONSchema(schema as never, { io: 'input' })).not.toThrow();
+  });
+});
+```
+
+- [ ] **Step 6: Verify**
 
 Run: `pnpm typecheck`
-Expected: no errors.
+Expected: no errors (and no unused-import errors from the dropped swagger imports).
+
+Run: `pnpm test -- openapi-schema`
+Expected: PASS (2 cases).
 
 Run: `pnpm build`
-Expected: build succeeds (confirms `z.toJSONSchema()` for the new DTOs does not crash — no `z.date()` used).
+Expected: build succeeds (compilation only).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add src/common/http/error-response.dto.ts src/common/http/api-envelope.decorator.ts src/modules/users/controllers/users.controller.ts src/modules/auth/controllers/auth.controller.ts
-git commit -m "docs(swagger): document standard error envelope on controllers"
+git add src/common/http/error-response.dto.ts src/common/http/api-envelope.decorator.ts src/common/http/openapi-schema.spec.ts src/modules/users/controllers/users.controller.ts src/modules/auth/controllers/auth.controller.ts
+git commit -m "docs(swagger): document success + error envelope on controllers"
 ```
 
 ---
@@ -918,20 +1072,39 @@ Expected: Biome reports no remaining issues (auto-fixes applied). Review and `gi
 Run: `pnpm typecheck`
 Expected: no errors.
 
-- [ ] **Step 3: Build (proves Swagger/Zod JSON-schema generation is safe)**
+- [ ] **Step 3: Build (TypeScript compilation only)**
 
 Run: `pnpm build`
-Expected: success.
+Expected: success. (Note: this compiles TS only; the Zod→JSON-schema safety is covered by the
+`openapi-schema` smoke test from Task 7, not by the build.)
 
 - [ ] **Step 4: Full test suite**
 
 Run: `pnpm test`
-Expected: all suites pass — new `error-code`, `response.interceptor`, `http-exception.filter` specs plus existing `users.service` / `auth.service` specs.
+Expected: all suites pass — new `error-code`, `response.interceptor`, `http-exception.filter`,
+`openapi-schema` specs plus existing `users.service` / `auth.service` specs.
 
-- [ ] **Step 5: Commit any formatting fixups**
+- [ ] **Step 5 (optional): End-to-end Swagger boot smoke**
+
+Only if a database/Redis/RabbitMQ are available locally. This is the only check that exercises
+`SwaggerModule.createDocument()` + `cleanupOpenApiDoc()` for real:
+
+Run: `pnpm start:dev`, then in another shell:
 
 ```bash
-git add -A
+curl -fsS http://localhost:3000/docs-json > /dev/null && echo "OpenAPI doc built OK"
+```
+
+Expected: `OpenAPI doc built OK` (the app booted and produced the Swagger document without crashing).
+
+- [ ] **Step 6: Commit any formatting fixups**
+
+Review what changed first, then stage explicitly (do NOT `git add -A` — the worktree has an
+unrelated pending `package.json` change that must not be swept into this commit):
+
+```bash
+git status --short
+git add src/ docs/
 git commit -m "chore: format + lint fixups for response standardization" || echo "nothing to commit"
 ```
 
@@ -939,7 +1112,8 @@ git commit -m "chore: format + lint fixups for response standardization" || echo
 
 ## Self-Review Notes (already reconciled against the spec)
 
-- **Success envelope** → Tasks 2, 4. **Error envelope + code** → Tasks 1, 3. **Errors stay Nest exceptions** → Task 3 (filter derives code; services untouched). **Full pagination meta** → Tasks 2, 5, 6. **requestId via header ↔ req.id** → Tasks 2, 3, 4. **Edge cases (non-http skip)** → Tasks 2, 3. **Swagger lightweight** → Task 7.
+- **Success envelope** → Tasks 2, 4. **Error envelope + code** → Tasks 1, 3. **Errors stay Nest exceptions** → Task 3 (filter derives code; services untouched). **Full pagination meta** → Tasks 2, 5, 6. **requestId via header ↔ req.id** → Tasks 2, 3, 4. **Edge cases (non-http skip)** → Tasks 2, 3. **Swagger (success + error envelope)** → Task 7.
+- **Validation code vs status:** the filter derives `code` from status by default, but the validation branch overrides it to `VALIDATION_ERROR` (a 400 that must NOT report `BAD_REQUEST`). Locked in by two filter tests (validation → `VALIDATION_ERROR` + details; plain `BadRequestException` → `BAD_REQUEST`, no details).
 - **Type consistency:** `ResponseMeta`/`PaginationMeta`/`ErrorResponse`/`ErrorDetail` (Task 1) are the only response types referenced by the interceptor (Task 2) and filter (Task 3). The paginated wire shape `{ items, page, limit, total }` is produced identically by `paginatedSchema` (Task 6), the controller (Task 6), and detected by `isPaginated` (Task 2).
-- **Date convention:** timestamps use `Temporal.Now.instant().toString(...)`; all new response DTOs reuse `userResponseSchema`'s `z.any().transform(...)` date handling — no `z.date()`, so `z.toJSONSchema()` (Swagger) will not crash.
-```
+- **Swagger accuracy:** success routes are wrapped via `ApiEnvelopeResponse` (200/201 + paginated meta), error routes via `ApiStandardErrorResponses` covering 400/401/404/409/500 (the statuses the app actually emits). `login`/`me` stay description-only (non-DTO bodies).
+- **Date convention:** timestamps use `Temporal.Now.instant().toString(...)`; all new response DTOs reuse `userResponseSchema`'s `z.any().transform(...)` date handling — no `z.date()`. nestjs-zod generates OpenAPI metadata via `toJSONSchema(schema, { io: 'input' })`, under which the transform pattern is representable and `z.date()` throws — the `openapi-schema` smoke test (Task 7) guards exactly this.

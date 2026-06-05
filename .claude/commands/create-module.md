@@ -53,6 +53,8 @@ src/modules/<feature>/
 ├── <feature>.module.ts
 ├── controllers/
 │   └── <feature>.controller.ts
+├── decorators/
+│   └── <feature>-api.decorator.ts      # Swagger gom tập trung — composite @Api*()
 ├── services/
 │   ├── <feature>.service.ts
 │   └── <feature>.service.spec.ts
@@ -67,6 +69,8 @@ src/modules/<feature>/
 
 **Không tạo** file `index.ts` (barrel export).
 
+**Import:** vượt module/layer dùng path alias (`@common/*`, `@core/*`, `@modules/*`, `@generated/*`); trong cùng module dùng relative ngắn (`./`, `../dto/`, `../services/`). KHÔNG dùng `../../../`.
+
 Tham chiếu cụ thể: xem `src/modules/users/` để nắm đúng hình dạng từng file.
 
 ---
@@ -76,7 +80,7 @@ Tham chiếu cụ thể: xem `src/modules/users/` để nắm đúng hình dạn
 ### `repositories/product.repository.ts` — PORT
 
 ```ts
-import type { Product } from '../../../generated/prisma/client';
+import type { Product } from '@generated/prisma/client';
 
 // Re-export shape model qua port → service/test phụ thuộc PORT, không import generated/ trực tiếp.
 export type { Product };
@@ -105,8 +109,8 @@ export abstract class ProductRepository {
 
 ```ts
 import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../../../core/prisma/prisma.service';
-import type { Product } from '../../../generated/prisma/client';
+import { PrismaService } from '@core/prisma/prisma.service';
+import type { Product } from '@generated/prisma/client';
 import { type CreateProductData, type UpdateProductData, ProductRepository } from './product.repository';
 
 @Injectable()
@@ -188,61 +192,136 @@ export class ProductsService {
 
 ---
 
+### `decorators/products-api.decorator.ts` — Swagger gom tập trung
+
+**Quy tắc bắt buộc:** mọi decorator Swagger sống trong file này dưới dạng composite `applyDecorators`. Controller **không** import trực tiếp từ `@nestjs/swagger`.
+
+- Một decorator class-level: `Api<Feature>Controller()` — gom `ApiTags` + `ApiStandardErrorResponses` (+ `ApiBearerAuth` nếu route cần auth).
+- Một decorator per-endpoint: `Api<Action>()` — gom `ApiEnvelopeResponse(...)` (và bất kỳ metadata riêng của route).
+- **`status` luôn dùng `HttpStatus.X`** (từ `@nestjs/common`), khớp đúng với `@HttpCode` ở controller — không dùng số magic.
+
+```ts
+import { applyDecorators, HttpStatus } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import {
+  ApiEnvelopeResponse,
+  ApiStandardErrorResponses,
+} from '@common/http/api-envelope.decorator';
+import { ProductResponseDto } from '../dto/product-response.dto';
+
+// Class-level: tag + error envelope chuẩn + bearer token cho mọi route.
+export function ApiProductsController() {
+  return applyDecorators(ApiTags('products'), ApiStandardErrorResponses(), ApiBearerAuth());
+}
+
+// POST /products — tạo resource → 201 Created, envelope.
+export function ApiCreateProduct() {
+  return applyDecorators(ApiEnvelopeResponse(ProductResponseDto, { status: HttpStatus.CREATED }));
+}
+
+// GET /products — danh sách → 200 OK (dùng `paginated: true` nếu là route phân trang).
+export function ApiListProducts() {
+  return applyDecorators(
+    ApiEnvelopeResponse(ProductResponseDto, { status: HttpStatus.OK, paginated: true }),
+  );
+}
+
+// GET /products/:id → 200 OK
+export function ApiFindProduct() {
+  return applyDecorators(ApiEnvelopeResponse(ProductResponseDto, { status: HttpStatus.OK }));
+}
+
+// PATCH /products/:id → 200 OK
+export function ApiUpdateProduct() {
+  return applyDecorators(ApiEnvelopeResponse(ProductResponseDto, { status: HttpStatus.OK }));
+}
+
+// DELETE /products/:id → 200 OK
+export function ApiRemoveProduct() {
+  return applyDecorators(ApiEnvelopeResponse(ProductResponseDto, { status: HttpStatus.OK }));
+}
+```
+
+---
+
 ### `controllers/products.controller.ts`
 
 ```ts
-import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
-import { ApiBearerAuth, ApiCreatedResponse, ApiOkResponse, ApiTags } from '@nestjs/swagger';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Patch,
+  Post,
+} from '@nestjs/common';
 import { ZodSerializerDto } from 'nestjs-zod';
+import {
+  ApiCreateProduct,
+  ApiFindProduct,
+  ApiListProducts,
+  ApiProductsController,
+  ApiRemoveProduct,
+  ApiUpdateProduct,
+} from '../decorators/products-api.decorator';
 import { CreateProductDto } from '../dto/create-product.dto';
 import { UpdateProductDto } from '../dto/update-product.dto';
 import { ProductResponseDto } from '../dto/product-response.dto';
 import { ProductsService } from '../services/products.service';
 
-@ApiTags('products')
-@ApiBearerAuth()
+@ApiProductsController()
 @Controller('products')
 export class ProductsController {
   constructor(private readonly products: ProductsService) {}
 
   @Post()
+  @HttpCode(HttpStatus.CREATED)
   @ZodSerializerDto(ProductResponseDto)
-  @ApiCreatedResponse({ type: ProductResponseDto })
+  @ApiCreateProduct()
   create(@Body() dto: CreateProductDto) {
     return this.products.create(dto);
   }
 
   @Get()
+  @HttpCode(HttpStatus.OK)
   @ZodSerializerDto(ProductResponseDto)
-  @ApiOkResponse({ type: [ProductResponseDto] })
+  @ApiListProducts()
   findAll() {
     return this.products.findAll();
   }
 
   @Get(':id')
+  @HttpCode(HttpStatus.OK)
   @ZodSerializerDto(ProductResponseDto)
-  @ApiOkResponse({ type: ProductResponseDto })
+  @ApiFindProduct()
   findOne(@Param('id') id: string) {
     return this.products.findOne(id);
   }
 
   @Patch(':id')
+  @HttpCode(HttpStatus.OK)
   @ZodSerializerDto(ProductResponseDto)
-  @ApiOkResponse({ type: ProductResponseDto })
+  @ApiUpdateProduct()
   update(@Param('id') id: string, @Body() dto: UpdateProductDto) {
     return this.products.update(id, dto);
   }
 
   @Delete(':id')
+  @HttpCode(HttpStatus.OK)
   @ZodSerializerDto(ProductResponseDto)
-  @ApiOkResponse({ type: ProductResponseDto })
+  @ApiRemoveProduct()
   remove(@Param('id') id: string) {
     return this.products.remove(id);
   }
 }
 ```
 
-Ghi chú: `JwtAuthGuard` đã được đăng ký toàn cục (global guard), nên không cần thêm `@UseGuards` ở đây. Chỉ cần `@ApiBearerAuth()` để Swagger hiển thị khóa bảo mật.
+Ghi chú:
+- `JwtAuthGuard` đã được đăng ký toàn cục (global guard), nên không cần thêm `@UseGuards` ở đây. Yêu cầu bearer cho Swagger nằm trong `ApiProductsController()` (qua `ApiBearerAuth()`), không đặt trực tiếp ở controller.
+- **Mọi route khai báo `@HttpCode(HttpStatus.X)` tường minh**, dùng cùng `HttpStatus.X` với `status` trong decorator Swagger → runtime và docs luôn khớp.
 
 ---
 

@@ -148,15 +148,24 @@ await prisma.$transaction(async (tx) => {
 
 Kiểm tra:
 - REST conventions: `POST /resource` → 201, `GET /resource/:id` → 200, `DELETE` → 200 hoặc 204
-- Swagger đầy đủ: `@ApiTags`, `@ApiBearerAuth`, `@ApiOkResponse` hoặc `@ApiCreatedResponse`, `@ZodSerializerDto`
+- **Swagger gom tập trung**: mọi metadata Swagger sống trong `<module>/decorators/<feature>-api.decorator.ts` dưới dạng composite `applyDecorators` (class-level `Api<Feature>Controller()` + per-endpoint `Api<Action>()`). Controller KHÔNG được import trực tiếp từ `@nestjs/swagger` — FAIL nếu có
+- Mỗi route có composite decorator tài liệu hoá envelope phản hồi; controller-level có tag + `ApiStandardErrorResponses` (+ `ApiBearerAuth` nếu cần auth)
+- **`@HttpCode(HttpStatus.X)` tường minh trên MỌI route** — FAIL nếu dựa vào status mặc định ngầm của Nest. `status` trong `ApiEnvelopeResponse(..., { status: HttpStatus.X })` phải dùng cùng `HttpStatus.X` với `@HttpCode`; FAIL nếu dùng số magic hoặc lệch giữa runtime và docs
 - Không để controller trả về raw entity khi chưa có DTO response
 
 Ví dụ lỗi:
 ```ts
-// WARN: thiếu @ApiCreatedResponse
-@Post()
-create(@Body() dto: CreateUserDto) { ... }
-// → thêm @ApiCreatedResponse({ type: UserResponseDto })
+// FAIL: Swagger decorator nằm rải rác trong controller, import trực tiếp @nestjs/swagger
+import { ApiTags, ApiCreatedResponse } from '@nestjs/swagger';
+@ApiTags('users')
+@Controller('users')
+// → chuyển vào decorators/users-api.decorator.ts: @ApiUsersController() + @ApiCreateUser()
+
+// FAIL: thiếu @HttpCode → runtime dựa default ngầm, dễ lệch với status trong docs
+@Post('login')
+@ApiLogin() // docs 200 nhưng POST mặc định trả 201 → lệch
+login(@Body() dto: LoginDto) { ... }
+// → thêm @HttpCode(HttpStatus.OK) cho khớp
 ```
 
 ---

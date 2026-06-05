@@ -1,4 +1,4 @@
-import type { User } from '../../../generated/prisma/client';
+import type { User } from '@generated/prisma/client';
 
 // Re-export shape model qua port → service/test phụ thuộc PORT, không import generated/ trực tiếp.
 export type { User };

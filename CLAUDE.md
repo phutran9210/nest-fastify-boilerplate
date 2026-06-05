@@ -42,7 +42,21 @@ pnpm prisma:generate  # Sinh Prisma client
 ### Auth opt-out — `@Public()` de mo endpoint
 - Global `JwtAuthGuard` bao ve MOI route mac dinh.
 - De lo route cong khai: gan decorator `@Public()` (tu `src/common/decorators/public.decorator.ts`).
-- Controller can xac thuc: them `@ApiBearerAuth()`.
+- Controller can xac thuc: `ApiBearerAuth()` dat BEN TRONG composite decorator cua module (xem muc Swagger ben duoi), KHONG dat truc tiep tren controller.
+
+### Swagger — gom tap trung trong `decorators/`
+- MOI controller co file `<module>/decorators/<feature>-api.decorator.ts` chua toan bo metadata Swagger duoi dang composite `applyDecorators`.
+- Class-level: `Api<Feature>Controller()` — gom `ApiTags` + `ApiStandardErrorResponses` (+ `ApiBearerAuth` neu can auth).
+- Per-endpoint: `Api<Action>()` — gom `ApiEnvelopeResponse(...)` va metadata rieng cua route.
+- Controller **KHONG** import truc tiep tu `@nestjs/swagger` — chi import cac `Api*()` tu `decorators/`.
+- Ap dung cho MOI controller, ke ca route chi co `ApiTags` (mail, notifications, health…).
+- Module tham chieu: `src/modules/users/decorators/users-api.decorator.ts`.
+
+### HTTP status — `@HttpCode` tuong minh, dung `HttpStatus` cua `@nestjs/common`
+- MOI route HTTP **bat buoc** khai bao `@HttpCode(HttpStatus.X)` tuong minh — KHONG dua vao mac dinh ngam cua Nest (POST→201, con lai→200).
+- `status` trong `ApiEnvelopeResponse(..., { status: HttpStatus.X })` phai dung **cung** `HttpStatus.X` voi `@HttpCode` → runtime va Swagger luon dong bo.
+- KHONG dung so magic (`201`, `202`…) — luon dung enum `HttpStatus` (`CREATED`, `OK`, `ACCEPTED`, `NO_CONTENT`…).
+- Quy uoc status: tao resource → `CREATED` (201); doc/sua/xoa tra body → `OK` (200); hanh dong bat dong bo (enqueue/publish) → `ACCEPTED` (202).
 
 ### Date trong response DTO — KHONG dung `z.date()`
 - `z.date()` lam `z.toJSONSchema()` (nestjs-zod dung cho Swagger) bi crash — **app khong boot**.
@@ -76,6 +90,7 @@ src/
     ├── users/
     │   ├── users.module.ts
     │   ├── controllers/
+    │   ├── decorators/    # Swagger gom tap trung — composite @Api*()
     │   ├── services/      # *.service.ts + *.service.spec.ts
     │   ├── repositories/  # port + prisma impl
     │   └── dto/
@@ -84,7 +99,14 @@ src/
     └── notifications/     # RabbitMQ consumer (truoc day: messaging/consumer)
 ```
 
-- Dung **relative imports** — khong co path alias trong thuc te.
+- **Path alias cho import vuot cap (khac module/layer)** — khai bao o `tsconfig.json` (`paths`), `.swcrc` (`jsc.baseUrl` + `jsc.paths`) va `jest.config.js` (`moduleNameMapper`):
+  - `@common/*` → `src/common/*`
+  - `@core/*` → `src/core/*`
+  - `@modules/*` → `src/modules/*`
+  - `@generated/*` → `src/generated/*`
+  - Dung alias khi import vuot ra ngoai module/layer hien tai (truoc day la `../../../`). Vi du: `@common/decorators/public.decorator`, `@modules/users/dto/user-response.dto`, `@generated/prisma/client`.
+  - **Import trong cung module** (cung folder `<feature>/`) van dung relative ngan (`./`, `../dto/`, `../services/`) — KHONG alias hoa.
+  - SWC rewrite alias → relative luc build (xem `dist/`), nen runtime khong can `tsconfig-paths`.
 - Khong tao file barrel `index.ts`.
 - Module file (`<feature>.module.ts`) nam thang trong `src/modules/<feature>/`.
 

@@ -1,8 +1,8 @@
+import { UsersService } from '@modules/users/services/users.service';
 import { ConflictException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Test } from '@nestjs/testing';
 import * as bcrypt from 'bcrypt';
-import { UsersService } from '../../users/services/users.service';
 import { AuthService } from './auth.service';
 
 describe('AuthService', () => {

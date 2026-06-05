@@ -1,5 +1,5 @@
+import { paginatedSchema } from '@common/http/paginated.schema';
 import { createZodDto } from 'nestjs-zod';
-import { paginatedSchema } from '../../../common/http/paginated.schema';
 import { userResponseSchema } from './user-response.dto';
 
 export const paginatedUsersResponseSchema = paginatedSchema(userResponseSchema);

@@ -1,11 +1,11 @@
+import { PrismaService } from '@core/prisma/prisma.service';
+import { Prisma, type User } from '@generated/prisma/client';
 import {
   BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { PrismaService } from '../../../core/prisma/prisma.service';
-import { Prisma, type User } from '../../../generated/prisma/client';
 import {
   type CreateUserData,
   type FindUsersParams,

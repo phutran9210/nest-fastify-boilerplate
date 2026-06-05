@@ -2,6 +2,7 @@ allowBuilds:
   '@nestjs/core': false
   '@prisma/engines': false
   '@scarf/scarf': false
+  '@swc/core': false
   bcrypt: false
   msgpackr-extract: false
   prisma: false

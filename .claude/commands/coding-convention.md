@@ -78,25 +78,29 @@ Single-tenant. Cấu trúc module theo **feature-first** với phân tầng rõ 
 
 ### 2. Import & cấu trúc thư mục
 
-- ✅ Dùng **relative imports**: `../../../core/prisma/prisma.service`
+- ✅ **Import vượt cấp (khác module/layer) dùng path alias** — `@common/*`, `@core/*`, `@modules/*`, `@generated/*` (khai báo ở `tsconfig.json` `paths`, `.swcrc` `jsc.paths`, `jest.config.js` `moduleNameMapper`)
+- ✅ **Import trong cùng module** vẫn dùng relative ngắn: `./`, `../dto/`, `../services/` — KHÔNG alias hoá
 - ✅ Cấu trúc feature-first: mỗi module nằm trong `src/modules/<feature>/` với các subfolder:
   - `controllers/` — controller file(s)
+  - `decorators/` — composite Swagger decorator (`<feature>-api.decorator.ts`)
   - `services/` — service file(s) và file `*.spec.ts` colocated
   - `dto/` — Zod DTO files
   - `repositories/` — port (abstract class) + Prisma impl (khi có DB access)
   - `strategies/` — Passport strategies (chỉ cho auth)
   - `jobs/` — BullMQ processors (chỉ cho mail/queue features)
 - ✅ File module nằm thẳng trong `src/modules/<feature>/`: `<feature>.module.ts`
-- ❌ Không dùng alias `@app/*` — tsconfig có định nghĩa nhưng code không dùng
+- ❌ KHÔNG dùng `../../../` cho import vượt module/layer — thay bằng alias
 - ❌ Không tạo file re-export tổng hợp `index.ts` cho module
 
 ```ts
-// ✅ Đúng
+// ✅ Đúng — cùng module dùng relative, vượt cấp dùng alias
 import { UserRepository } from '../repositories/user.repository';
-import { PrismaService } from '../../../core/prisma/prisma.service';
+import { PrismaService } from '@core/prisma/prisma.service';
+import { UserResponseDto } from '@modules/users/dto/user-response.dto';
+import { User } from '@generated/prisma/client';
 
-// ❌ Sai
-import { PrismaService } from '@app/core/prisma/prisma.service';
+// ❌ Sai — vượt cấp mà vẫn dùng ../../../
+import { PrismaService } from '../../../core/prisma/prisma.service';
 ```
 
 ### 3. nestjs-zod & DTO
@@ -153,23 +157,74 @@ createdAt: z.date(),
 
 - ✅ `JwtAuthGuard` là global guard (`APP_GUARD`) — mọi endpoint đều được bảo vệ mặc định
 - ✅ Endpoint public: dùng `@Public()` từ `src/common/decorators/public.decorator.ts`
-- ✅ Controller cần auth: thêm `@ApiBearerAuth()` cho Swagger
+- ✅ Controller cần auth: yêu cầu bearer cho Swagger qua `ApiBearerAuth()` đặt **bên trong** composite decorator của module (xem mục 5 bên dưới), KHÔNG đặt trực tiếp ở controller
 
 ```ts
 // ✅ Endpoint public
-import { Public } from '../../../common/decorators/public.decorator';
+import { Public } from '@common/decorators/public.decorator';
 
 @Public()
 @Get('health')
 health() { ... }
 
-// ✅ Controller được bảo vệ
+// ✅ Controller được bảo vệ — bearer nằm trong ApiUsersController()
+@ApiUsersController()
+@Controller('users')
+export class UsersController { ... }
+```
+
+### 5. Swagger — gom tập trung trong `decorators/`
+
+- ✅ Mỗi controller có file `<module>/decorators/<feature>-api.decorator.ts` chứa toàn bộ metadata Swagger dưới dạng composite `applyDecorators`
+- ✅ Class-level: `Api<Feature>Controller()` — gom `ApiTags` + `ApiStandardErrorResponses` (+ `ApiBearerAuth` nếu cần auth)
+- ✅ Per-endpoint: `Api<Action>()` — gom `ApiEnvelopeResponse(...)` và metadata riêng của route
+- ❌ Controller KHÔNG được `import` trực tiếp từ `@nestjs/swagger` — chỉ import các `Api*()` từ `decorators/`
+- ✅ Áp dụng cho **mọi** controller, kể cả route chỉ có `ApiTags` (mail, notifications, health…)
+
+```ts
+// ✅ Đúng — decorators/users-api.decorator.ts
+import { applyDecorators } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiEnvelopeResponse, ApiStandardErrorResponses } from '@common/http/api-envelope.decorator';
+import { UserResponseDto } from '../dto/user-response.dto';
+
+export function ApiUsersController() {
+  return applyDecorators(ApiTags('users'), ApiStandardErrorResponses(), ApiBearerAuth());
+}
+export function ApiCreateUser() {
+  return applyDecorators(ApiEnvelopeResponse(UserResponseDto, { status: HttpStatus.CREATED }));
+}
+
+// ❌ Sai — Swagger decorator nằm rải rác trong controller
+@ApiTags('users')
 @ApiBearerAuth()
 @Controller('users')
 export class UsersController { ... }
 ```
 
-### 5. Data access — Repository port pattern
+### 6. HTTP status — `@HttpCode` tường minh + đồng bộ với Swagger
+
+- ✅ **Mọi** route HTTP phải khai báo `@HttpCode(HttpStatus.X)` tường minh (import từ `@nestjs/common`) — KHÔNG dựa vào mặc định ngầm của Nest (POST→201, còn lại→200)
+- ✅ `status` trong `ApiEnvelopeResponse(..., { status: HttpStatus.X })` dùng **cùng** `HttpStatus.X` với `@HttpCode` → runtime và Swagger luôn khớp
+- ❌ KHÔNG dùng số magic (`200`, `201`, `202`) — luôn dùng enum `HttpStatus`
+- Quy ước: tạo resource → `CREATED`; đọc/sửa/xóa trả body → `OK`; hành động bất đồng bộ (enqueue/publish) → `ACCEPTED`
+
+```ts
+// ✅ Đúng — @HttpCode khớp status trong decorator
+import { HttpCode, HttpStatus } from '@nestjs/common';
+
+@Post()
+@HttpCode(HttpStatus.CREATED)   // runtime 201
+@ApiCreateUser()                // ApiEnvelopeResponse(..., { status: HttpStatus.CREATED })
+create(@Body() dto: CreateUserDto) { ... }
+
+// ❌ Sai — không khai báo @HttpCode (dựa default), hoặc số magic lệch với docs
+@Post()
+@ApiCreateUser()  // docs 201 nhưng runtime cũng 201 do may mắn — vẫn FAIL vì thiếu @HttpCode
+create(@Body() dto: CreateUserDto) { ... }
+```
+
+### 7. Data access — Repository port pattern
 
 - ✅ **Service inject PORT** (`abstract class <Feature>Repository`) — KHÔNG inject `PrismaService` trực tiếp
 - ✅ **Port** (`repositories/<feature>.repository.ts`) là `abstract class <Feature>Repository` — đóng vai trò là TS type VÀ DI token; re-export model type qua `export type { <Model> }`; định nghĩa `Create<Feature>Data` và `Update<Feature>Data`
@@ -189,8 +244,8 @@ export abstract class UserRepository {
 }
 
 // ✅ Đúng — Prisma impl (repositories/prisma-user.repository.ts)
-import { PrismaService } from '../../../core/prisma/prisma.service';
-import type { User } from '../../../generated/prisma/client';
+import { PrismaService } from '@core/prisma/prisma.service';
+import type { User } from '@generated/prisma/client';
 @Injectable()
 export class PrismaUserRepository extends UserRepository {
   constructor(private readonly prisma: PrismaService) { super(); }
@@ -218,7 +273,7 @@ Lỗi Prisma được xử lý trong Prisma impl qua `Prisma.PrismaClientKnownRe
 
 Multi-step writes dùng `prisma.$transaction([...])` hoặc `$transaction(async (tx) => …)` bên trong Prisma impl.
 
-### 6. Date/Time — Temporal API
+### 8. Date/Time — Temporal API
 
 Dùng `@js-temporal/polyfill` cho mọi logic liên quan đến ngày giờ. **Không dùng `new Date()`** cho date logic.
 
@@ -243,7 +298,7 @@ const expires = new Date(Date.now() + 3600 * 1000);
 
 > **Lưu ý:** Prisma `DateTime` column vẫn trả về `Date` object của JS. Chỉ convert sang Temporal khi cần tính toán.
 
-### 7. Testing (Jest)
+### 9. Testing (Jest)
 
 - ✅ File `*.spec.ts` **đặt cùng thư mục** với source (colocated), không đặt trong `__tests__/`
   - Service spec đặt trong `services/`: `services/<feature>.service.spec.ts`

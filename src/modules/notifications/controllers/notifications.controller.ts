@@ -1,15 +1,18 @@
-import { Controller, Inject, Logger, Post } from '@nestjs/common';
+import { Public } from '@common/decorators/public.decorator';
+import { RMQ_CLIENT } from '@core/messaging/messaging.module';
+import { Controller, HttpCode, HttpStatus, Inject, Logger, Post } from '@nestjs/common';
 import { type ClientProxy, EventPattern, Payload } from '@nestjs/microservices';
-import { ApiTags } from '@nestjs/swagger';
-import { Public } from '../../../common/decorators/public.decorator';
-import { RMQ_CLIENT } from '../../../core/messaging/messaging.module';
+import {
+  ApiNotificationPublish,
+  ApiNotificationsController,
+} from '../decorators/notifications-api.decorator';
 
 interface NotificationCreated {
   userId: string;
   message: string;
 }
 
-@ApiTags('notifications')
+@ApiNotificationsController()
 @Controller('notifications')
 export class NotificationsController {
   private readonly logger = new Logger(NotificationsController.name);
@@ -19,6 +22,8 @@ export class NotificationsController {
   // HTTP endpoint that publishes an event to RabbitMQ (demo producer).
   @Public()
   @Post('publish')
+  @HttpCode(HttpStatus.ACCEPTED)
+  @ApiNotificationPublish()
   publish() {
     const payload: NotificationCreated = { userId: 'demo', message: 'hello from http' };
     // emit() returns a cold Observable — subscribe so the message is actually sent.

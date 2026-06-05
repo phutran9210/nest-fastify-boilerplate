@@ -1,7 +1,7 @@
 # nest-fastify
 
 NestJS 11 boilerplate on the **Fastify** adapter with a module structure split into
-`core/` (infrastructure) and `modules/` (business features).
+`common/` (cross-cutting), `core/` (infrastructure), and `modules/` (business features).
 
 **Stack:** PostgreSQL (Prisma 7 + pg driver adapter), Redis + BullMQ, RabbitMQ
 (`@nestjs/microservices`), Zod v4 validation via `nestjs-zod`, Swagger/OpenAPI, JWT auth
@@ -45,21 +45,29 @@ pnpm start:dev
 
 ```
 src/
-├── main.ts                 # Fastify bootstrap + Swagger + attached RabbitMQ microservice
-├── app.module.ts           # global pipe/interceptor/filter/guard + module wiring
-├── core/                   # infrastructure (no business logic)
-│   ├── config/             # Zod-validated env (fail-fast)
-│   ├── prisma/             # PrismaService (pg driver adapter) + @Global module
-│   ├── queue/              # BullMQ root (Redis)
-│   ├── messaging/          # RabbitMQ client (ClientsModule)
-│   ├── guards/             # JwtAuthGuard (global; skips non-HTTP contexts)
-│   ├── filters/ interceptors/ decorators/
-│   └── health/             # GET /health
-└── modules/                # business features
-    ├── users/              # CRUD, Zod DTOs, password-safe responses
-    ├── auth/               # register / login / me (Passport JWT)
-    ├── mail/               # BullMQ producer + processor demo
-    └── messaging/consumer/ # RabbitMQ publish + @EventPattern consumer demo
+├── main.ts                    # Fastify bootstrap + Swagger + attached RabbitMQ microservice
+├── app.module.ts              # global pipe/interceptor/filter/guard + module wiring
+├── common/                    # cross-cutting concerns (no business logic)
+│   ├── decorators/            # @Public() and other shared decorators
+│   ├── filters/               # HttpExceptionFilter (global)
+│   ├── guards/                # JwtAuthGuard (global APP_GUARD; skips non-HTTP contexts)
+│   └── interceptors/          # LoggingInterceptor (HTTP-only)
+├── core/                      # infrastructure (no business logic)
+│   ├── config/                # Zod-validated env (fail-fast)
+│   ├── prisma/                # PrismaService (pg driver adapter) + @Global module
+│   ├── queue/                 # BullMQ root (Redis)
+│   ├── messaging/             # RabbitMQ client (ClientsModule)
+│   └── health/                # GET /health
+└── modules/                   # business features (feature-first layout)
+    ├── users/                 # CRUD, Zod DTOs, password-safe responses
+    │   ├── users.module.ts
+    │   ├── controllers/
+    │   ├── services/          # users.service.ts + users.service.spec.ts
+    │   ├── repositories/      # user.repository.ts (port) + prisma-user.repository.ts (impl)
+    │   └── dto/
+    ├── auth/                  # register / login / me (Passport JWT)
+    ├── mail/                  # BullMQ producer + processor demo
+    └── notifications/         # RabbitMQ publish + @EventPattern consumer demo
 ```
 
 ## How things fit together
@@ -68,12 +76,18 @@ src/
   `HttpExceptionFilter` are registered globally. DTOs are built with `createZodDto(...)`;
   responses are serialized through DTOs so fields like `password` never leak.
 - **Auth:** `JwtAuthGuard` is a global `APP_GUARD` — every route requires a Bearer token
-  unless annotated `@Public()` (login, register, health). The guard skips non-HTTP
-  (microservice) execution contexts.
+  unless annotated `@Public()` (login, register, health). The guard lives in `src/common/guards/`
+  and skips non-HTTP (microservice) execution contexts.
+- **Data access (repository port pattern):** each feature module exposes an `abstract class
+  <Feature>Repository` (the port) that acts as both the TypeScript type and the NestJS DI
+  token. A `Prisma<Feature>Repository` (the impl) extends it and is the only file that imports
+  `PrismaService` or `generated/prisma`. Services depend on the port, not the impl — making
+  them easy to test by swapping in a plain-object mock.
 - **Config:** environment variables are validated by a Zod schema at startup; a missing or
   invalid value aborts the boot.
 - **RabbitMQ:** the app is hybrid — `main.ts` attaches an RMQ microservice with
-  `inheritAppConfig: true`, so `@EventPattern` handlers share the global pipe/filter stack.
+  `inheritAppConfig: true`, so `@EventPattern` handlers (in `modules/notifications/`) share
+  the global pipe/filter stack.
 
 ## Prisma 7 notes
 

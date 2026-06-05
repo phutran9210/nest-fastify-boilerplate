@@ -1,14 +1,14 @@
 # /create-module
 
-Scaffold mot feature module day du theo phong cach flat cua du an nay (NestJS 11 + Fastify + Prisma 7 + nestjs-zod).
+Scaffold một feature module đầy đủ theo kiến trúc feature-first của dự án này (NestJS 11 + Fastify + Prisma 7 + nestjs-zod).
 
-**Dau vao:** `$ARGUMENTS` la ten tinh nang (vi du: `product`, `order`, `category`).
+**Đầu vào:** `$ARGUMENTS` là tên tính năng (ví dụ: `product`, `order`, `category`).
 
 ---
 
-## Quy tac dat ten
+## Quy tắc đặt tên
 
-| Dang           | Vi du (input: `product`)  |
+| Dạng           | Ví dụ (input: `product`)  |
 |----------------|---------------------------|
 | camelCase      | `product`                 |
 | PascalCase     | `Product`                 |
@@ -16,124 +16,188 @@ Scaffold mot feature module day du theo phong cach flat cua du an nay (NestJS 11
 | pluralPascal   | `Products`                |
 | kebab          | `product`                 |
 
-Neu input la `product-category`, dieu chinh tuong ung: `productCategory`, `ProductCategory`, `product-categories`, v.v.
+Nếu input là `product-category`, điều chỉnh tương ứng: `productCategory`, `ProductCategory`, `product-categories`, v.v.
 
 ---
 
-## BUOC 1 (bat buoc) — Kiem tra model Prisma truoc khi tao code
+## BƯỚC 1 (bắt buộc) — Kiểm tra model Prisma trước khi tạo code
 
-Day la buoc quan trong nhat. Thuc hien theo thu tu sau:
+Đây là bước quan trọng nhất, và càng quan trọng hơn với kiến trúc repository port: file `prisma-<feature>.repository.ts` gọi `this.prisma.<feature>` — nếu model chưa có trong Prisma schema thì Prisma client chưa tạo ra accessor đó và **code sẽ không biên dịch được**.
 
-1. Doc noi dung file `prisma/schema.prisma`.
-2. Tim kiem model co ten PascalCase tuong ung (vi du: `Product`) trong file do.
-3. **Neu model TON TAI:**
-   - Tiep tuc sang Buoc 2 (tao day du CRUD co Prisma).
-   - Ghi nho cac truong cua model de suy ra DTO (de su dung o Buoc 3).
-4. **Neu model KHONG TON TAI:**
-   - DUNG lai, KHONG tao service/repository co goi Prisma (vi code se khong bien dich duoc).
-   - Thong bao cho nguoi dung:
-     > "Model `<Feature>` chua ton tai trong `prisma/schema.prisma`. Ban can them model truoc roi chay `pnpm prisma:migrate && pnpm prisma:generate`."
-   - Hoi nguoi dung ve cac truong can thiet, hoac yeu cau ho cung cap.
-   - Tao mot **goi y model** de nguoi dung tu dan vao `schema.prisma` (KHONG tu ghi de len file nay).
-   - Scaffold module o dang **TODO stub** (cac phuong thuc service tra ve `throw new Error('TODO')`) de build khong bi loi.
-   - Dung lai sau khi hoan thanh stub, nhac nguoi dung bo sung Prisma truoc khi dung that.
+Thực hiện theo thứ tự sau:
 
-> **Luuu y:** Lenh nay KHONG duoc tu ghi de `prisma/schema.prisma`.
+1. Đọc nội dung file `prisma/schema.prisma`.
+2. Tìm kiếm model có tên PascalCase tương ứng (ví dụ: `Product`) trong file đó.
+3. **Nếu model TỒN TẠI:**
+   - Tiếp tục sang Bước 2 (tạo đầy đủ CRUD có Prisma).
+   - Ghi nhớ các trường của model để suy ra DTO (để sử dụng ở Bước 3).
+4. **Nếu model KHÔNG TỒN TẠI:**
+   - DỪNG lại, KHÔNG tạo service/repository có gọi Prisma (vì code sẽ không biên dịch được).
+   - Thông báo cho người dùng:
+     > "Model `<Feature>` chưa tồn tại trong `prisma/schema.prisma`. Bạn cần thêm model trước rồi chạy `pnpm prisma:migrate && pnpm prisma:generate`."
+   - Hỏi người dùng về các trường cần thiết, hoặc yêu cầu họ cung cấp.
+   - Tạo một **gợi ý model** để người dùng tự dán vào `schema.prisma` (KHÔNG tự ghi đè lên file này).
+   - Scaffold module ở dạng **TODO stub** (các phương thức service trả về `throw new Error('TODO')`) để build không bị lỗi.
+   - Dừng lại sau khi hoàn thành stub, nhắc người dùng bổ sung Prisma trước khi dùng thật.
+
+> **Lưu ý:** Lệnh này KHÔNG được tự ghi đè `prisma/schema.prisma`.
 
 ---
 
-## BUOC 2 — Cau truc thu muc (flat, khong co thu muc con)
+## BƯỚC 2 — Cấu trúc thư mục (feature-first, có subfolder)
 
-Tao cac file sau trong `src/modules/<feature>/`:
+Tạo các file sau trong `src/modules/<feature>/`:
 
 ```
 src/modules/<feature>/
 ├── <feature>.module.ts
-├── <feature>.controller.ts
-├── <feature>.service.ts
-├── <feature>.service.spec.ts
+├── controllers/
+│   └── <feature>.controller.ts
+├── services/
+│   ├── <feature>.service.ts
+│   └── <feature>.service.spec.ts
+├── repositories/
+│   ├── <feature>.repository.ts        # PORT — abstract class + re-export types
+│   └── prisma-<feature>.repository.ts # IMPL — duy nhất import PrismaService
 └── dto/
     ├── create-<feature>.dto.ts
     ├── update-<feature>.dto.ts
     └── <feature>-response.dto.ts
 ```
 
-**Khong tao** file `index.ts` (barrel export), **khong tao** thu muc con nao ngoai `dto/`.
+**Không tạo** file `index.ts` (barrel export).
+
+Tham chiếu cụ thể: xem `src/modules/users/` để nắm đúng hình dạng từng file.
 
 ---
 
-## BUOC 3 — Noi dung tung file (dung `Product` / `Products` / `product` lam vi du)
+## BƯỚC 3 — Nội dung từng file (dùng `Product` / `Products` / `product` làm ví dụ)
 
-### `products.module.ts`
+### `repositories/product.repository.ts` — PORT
 
 ```ts
-import { Module } from '@nestjs/common';
-import { ProductsController } from './products.controller';
-import { ProductsService } from './products.service';
+import type { Product } from '../../../generated/prisma/client';
 
-@Module({
-  controllers: [ProductsController],
-  providers: [ProductsService],
-  exports: [ProductsService],
-})
-export class ProductsModule {}
+// Re-export shape model qua port → service/test phụ thuộc PORT, không import generated/ trực tiếp.
+export type { Product };
+
+export type CreateProductData = {
+  name: string;
+  price: number;
+  // thêm các trường bắt buộc từ Prisma model
+};
+export type UpdateProductData = Partial<CreateProductData>;
+
+export abstract class ProductRepository {
+  abstract findById(id: string): Promise<Product | null>;
+  abstract findAll(): Promise<Product[]>;
+  abstract create(data: CreateProductData): Promise<Product>;
+  abstract update(id: string, data: UpdateProductData): Promise<Product>;
+  abstract delete(id: string): Promise<Product>;
+}
 ```
 
+> Abstract class vừa là **TS type** vừa là **DI token** — module dùng nó làm `provide` key.
+
 ---
 
-### `products.service.ts`
+### `repositories/prisma-product.repository.ts` — IMPL
 
 ```ts
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { PrismaService } from '../../core/prisma/prisma.service';
-import type { Prisma, Product } from '../../generated/prisma/client';
+import { Injectable } from '@nestjs/common';
+import { PrismaService } from '../../../core/prisma/prisma.service';
+import type { Product } from '../../../generated/prisma/client';
+import { type CreateProductData, type UpdateProductData, ProductRepository } from './product.repository';
 
 @Injectable()
-export class ProductsService {
-  constructor(private readonly prisma: PrismaService) {}
+export class PrismaProductRepository extends ProductRepository {
+  constructor(private readonly prisma: PrismaService) {
+    super();
+  }
 
-  create(data: Prisma.ProductCreateInput): Promise<Product> {
-    return this.prisma.product.create({ data });
+  findById(id: string): Promise<Product | null> {
+    return this.prisma.product.findUnique({ where: { id } });
   }
 
   findAll(): Promise<Product[]> {
     return this.prisma.product.findMany();
   }
 
+  create(data: CreateProductData): Promise<Product> {
+    return this.prisma.product.create({ data });
+  }
+
+  update(id: string, data: UpdateProductData): Promise<Product> {
+    return this.prisma.product.update({ where: { id }, data });
+  }
+
+  delete(id: string): Promise<Product> {
+    return this.prisma.product.delete({ where: { id } });
+  }
+}
+```
+
+> File này là **DUY NHẤT** được phép import `PrismaService` và `generated/prisma` trong toàn bộ feature module.
+
+---
+
+### `services/products.service.ts`
+
+```ts
+import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  type CreateProductData,
+  type UpdateProductData,
+  type Product,
+  ProductRepository,
+} from '../repositories/product.repository';
+
+@Injectable()
+export class ProductsService {
+  constructor(private readonly products: ProductRepository) {}
+
+  create(data: CreateProductData): Promise<Product> {
+    return this.products.create(data);
+  }
+
+  findAll(): Promise<Product[]> {
+    return this.products.findAll();
+  }
+
   async findOne(id: string): Promise<Product> {
-    const product = await this.prisma.product.findUnique({ where: { id } });
+    const product = await this.products.findById(id);
     if (!product) {
       throw new NotFoundException(`Product ${id} not found`);
     }
     return product;
   }
 
-  async update(id: string, data: Prisma.ProductUpdateInput): Promise<Product> {
+  async update(id: string, data: UpdateProductData): Promise<Product> {
     await this.findOne(id);
-    return this.prisma.product.update({ where: { id }, data });
+    return this.products.update(id, data);
   }
 
   async remove(id: string): Promise<Product> {
     await this.findOne(id);
-    return this.prisma.product.delete({ where: { id } });
+    return this.products.delete(id);
   }
 }
 ```
 
-Thay the `Product`, `product`, `ProductCreateInput`, `ProductUpdateInput` bang ten tinh nang tuong ung.
+> Service inject PORT (`ProductRepository`), không biết gì về Prisma. Import kiểu `Product` từ PORT (không từ `generated/`).
 
 ---
 
-### `products.controller.ts`
+### `controllers/products.controller.ts`
 
 ```ts
 import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiCreatedResponse, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import { ZodSerializerDto } from 'nestjs-zod';
-import { CreateProductDto } from './dto/create-product.dto';
-import { UpdateProductDto } from './dto/update-product.dto';
-import { ProductResponseDto } from './dto/product-response.dto';
-import { ProductsService } from './products.service';
+import { CreateProductDto } from '../dto/create-product.dto';
+import { UpdateProductDto } from '../dto/update-product.dto';
+import { ProductResponseDto } from '../dto/product-response.dto';
+import { ProductsService } from '../services/products.service';
 
 @ApiTags('products')
 @ApiBearerAuth()
@@ -178,72 +242,140 @@ export class ProductsController {
 }
 ```
 
-Ghi chu: `JwtAuthGuard` da duoc dang ky toan cuc (global guard), nen khong can them `@UseGuards` o day. Chi can `@ApiBearerAuth()` de Swagger hien thi khoa bao mat.
+Ghi chú: `JwtAuthGuard` đã được đăng ký toàn cục (global guard), nên không cần thêm `@UseGuards` ở đây. Chỉ cần `@ApiBearerAuth()` để Swagger hiển thị khóa bảo mật.
+
+---
+
+### `products.module.ts`
+
+```ts
+import { Module } from '@nestjs/common';
+import { ProductsController } from './controllers/products.controller';
+import { PrismaProductRepository } from './repositories/prisma-product.repository';
+import { ProductRepository } from './repositories/product.repository';
+import { ProductsService } from './services/products.service';
+
+@Module({
+  controllers: [ProductsController],
+  providers: [
+    ProductsService,
+    { provide: ProductRepository, useClass: PrismaProductRepository },
+  ],
+  exports: [ProductsService],
+})
+export class ProductsModule {}
+```
+
+> `{ provide: ProductRepository, useClass: PrismaProductRepository }` là cách NestJS DI biết "khi ai đó inject PORT (`ProductRepository`), hãy cấp IMPL (`PrismaProductRepository`)".
 
 ---
 
 ### `dto/` — Ba file DTO
 
-Tao ba file DTO theo lenh `/create-dto`, truyen vao:
-- Ten tinh nang
-- Danh sach truong suy ra tu model Prisma (hoac tu nguoi dung cung cap neu model chua co)
+Tạo ba file DTO theo lệnh `/create-dto`, truyền vào:
+- Tên tính năng
+- Danh sách trường suy ra từ model Prisma (hoặc từ người dùng cung cấp nếu model chưa có)
 
-Cau truc tong quat:
-- `create-<feature>.dto.ts` — dung `createZodDto(Schema)` cho cac truong bat buoc.
-- `update-<feature>.dto.ts` — dung `createZodDto(Schema.partial())` hoac extend create schema.
-- `<feature>-response.dto.ts` — bao gom tat ca cac truong tra ve (ke ca `id`, `createdAt`, `updatedAt`).
-
----
-
-### `<feature>.service.spec.ts`
-
-Tao file spec theo lenh `/create-test`, truyen vao ten service va cac phuong thuc can test (`create`, `findAll`, `findOne`, `update`, `remove`).
+Cấu trúc tổng quát:
+- `create-<feature>.dto.ts` — dùng `createZodDto(Schema)` cho các trường bắt buộc.
+- `update-<feature>.dto.ts` — dùng `createZodDto(Schema.partial())` hoặc extend create schema.
+- `<feature>-response.dto.ts` — bao gồm tất cả các trường trả về (kể cả `id`, `createdAt`, `updatedAt`).
 
 ---
 
-## BUOC 4 — Dang ky module trong `src/app.module.ts`
+### `services/<feature>.service.spec.ts`
 
-NestJS **khong tu dong** phat hien module. Sau khi tao xong cac file, them module moi vao `src/app.module.ts`:
+Tạo file spec theo lệnh `/create-test`, truyền vào đường dẫn service. Mock **repository PORT** (không phải `PrismaService`):
 
-1. Them dong import o dau file:
+```ts
+import { Test } from '@nestjs/testing';
+import { NotFoundException } from '@nestjs/common';
+import { ProductRepository } from '../repositories/product.repository';
+import { ProductsService } from './products.service';
+
+describe('ProductsService', () => {
+  let service: ProductsService;
+  const repo = {
+    findById: jest.fn(),
+    findAll: jest.fn(),
+    create: jest.fn(),
+    update: jest.fn(),
+    delete: jest.fn(),
+  };
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ProductsService,
+        { provide: ProductRepository, useValue: repo },
+      ],
+    }).compile();
+    service = moduleRef.get(ProductsService);
+  });
+
+  it('findOne throws NotFoundException when the product does not exist', async () => {
+    repo.findById.mockResolvedValue(null);
+    await expect(service.findOne('missing')).rejects.toBeInstanceOf(NotFoundException);
+    expect(repo.findById).toHaveBeenCalledWith('missing');
+  });
+
+  it('create delegates to repository.create', async () => {
+    const created = { id: '1', name: 'A', price: 10 };
+    repo.create.mockResolvedValue(created);
+    const result = await service.create({ name: 'A', price: 10 });
+    expect(repo.create).toHaveBeenCalledWith({ name: 'A', price: 10 });
+    expect(result).toBe(created);
+  });
+});
+```
+
+---
+
+## BƯỚC 4 — Đăng ký module trong `src/app.module.ts`
+
+NestJS **không tự động** phát hiện module. Sau khi tạo xong các file, thêm module mới vào `src/app.module.ts`:
+
+1. Thêm dòng import ở đầu file:
    ```ts
    import { ProductsModule } from './modules/products/products.module';
    ```
-2. Them `ProductsModule` vao mang `imports` cua `@Module(...)`.
+2. Thêm `ProductsModule` vào mảng `imports` của `@Module(...)`.
 
-Vi du (sau khi chinh sua):
+Ví dụ (sau khi chỉnh sửa):
 ```ts
 @Module({
   imports: [
-    // ... cac module hien co ...
+    // ... các module hiện có ...
     ProductsModule,
   ],
 })
 export class AppModule {}
 ```
 
-**Khong bo qua buoc nay** — neu khong dang ky, controller se khong hoat dong.
+**Không bỏ qua bước này** — nếu không đăng ký, controller sẽ không hoạt động.
 
 ---
 
-## Kiem tra sau khi tao
+## Kiểm tra sau khi tạo
 
-Sau khi tao xong tat ca file, chay lenh sau de xac nhan build khong bi loi:
+Sau khi tạo xong tất cả file, chạy lệnh sau để xác nhận build không bị lỗi:
 
 ```bash
 pnpm build
 ```
 
-Neu co loi lien quan den Prisma types (`Product`, `Prisma.ProductCreateInput`, ...), kiem tra lai:
-- Model da duoc them vao `prisma/schema.prisma` chua?
-- Da chay `pnpm prisma:generate` chua?
+Nếu có lỗi liên quan đến Prisma types (`Product`, `this.prisma.product`, ...):
+- Model đã được thêm vào `prisma/schema.prisma` chưa?
+- Đã chạy `pnpm prisma:migrate && pnpm prisma:generate` chưa?
 
 ---
 
-## Tom tat nhung gi KHONG lam
+## Tóm tắt những gì KHÔNG làm
 
-- KHONG su dung TypeORM, `TypeOrmModule.forFeature`, `@InjectRepository`.
-- KHONG tao file `index.ts` barrel export.
-- KHONG tao thu muc con ngoai `dto/` (tat ca file nam phang trong `src/modules/<feature>/`).
-- KHONG tu ghi de `prisma/schema.prisma`.
-- KHONG tao custom repository class rieng.
+- KHÔNG sử dụng TypeORM, `TypeOrmModule.forFeature`, `@InjectRepository`.
+- KHÔNG tạo file `index.ts` barrel export.
+- KHÔNG tự ghi đè `prisma/schema.prisma`.
+- KHÔNG inject `PrismaService` vào service — chỉ inject qua repository PORT.
+- KHÔNG import `generated/prisma` từ service — chỉ `prisma-<feature>.repository.ts` được làm vậy.
+- KHÔNG tạo cấu trúc phẳng (flat) — luôn dùng `controllers/`, `services/`, `repositories/`, `dto/`.

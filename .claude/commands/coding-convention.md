@@ -19,7 +19,7 @@ Lệnh này có **hai chế độ**:
 
 | Argument       | Mô tả                                                                 |
 |----------------|-----------------------------------------------------------------------|
-| `<path>`       | Đường dẫn cụ thể (file hoặc thư mục), ví dụ: `src/modules/user`     |
+| `<path>`       | Đường dẫn cụ thể (file hoặc thư mục), ví dụ: `src/modules/users`    |
 | `all`          | Toàn bộ dự án (trừ `src/generated`)                                  |
 | `--changed`    | Các file `.ts` thay đổi so với base branch (`git diff $BASE...HEAD`) |
 | `--dirty`      | Uncommitted + untracked (chưa commit, kể cả file mới chưa stage)     |
@@ -58,7 +58,11 @@ Sau khi dùng `--fix`, nhắc nhở: **"Nhớ chạy `pnpm check` để format v
 
 **NestJS 11 + Fastify + Prisma 7 + nestjs-zod + Zod 4 + @js-temporal/polyfill + Biome 2.4.16 + Jest + pnpm**
 
-Cấu trúc module **phẳng** (flat), single-tenant.
+Single-tenant. Cấu trúc module theo **feature-first** với phân tầng rõ ràng:
+
+- `src/common/` — cross-cutting concerns: `decorators/`, `filters/`, `guards/`, `interceptors/`
+- `src/core/` — infrastructure: `config/`, `prisma/`, `queue/`, `messaging/`, `health/`
+- `src/modules/` — business features, mỗi feature có subfolders riêng
 
 ---
 
@@ -74,17 +78,22 @@ Cấu trúc module **phẳng** (flat), single-tenant.
 
 ### 2. Import & cấu trúc thư mục
 
-- ✅ Dùng **relative imports**: `../../core/prisma/prisma.service`
-- ✅ Cấu trúc phẳng: `src/modules/<feature>/<feature>.controller.ts`, `.service.ts`, `.module.ts`, `dto/`
-- ✅ Prisma client/types import từ `../../generated/prisma/client`
+- ✅ Dùng **relative imports**: `../../../core/prisma/prisma.service`
+- ✅ Cấu trúc feature-first: mỗi module nằm trong `src/modules/<feature>/` với các subfolder:
+  - `controllers/` — controller file(s)
+  - `services/` — service file(s) và file `*.spec.ts` colocated
+  - `dto/` — Zod DTO files
+  - `repositories/` — port (abstract class) + Prisma impl (khi có DB access)
+  - `strategies/` — Passport strategies (chỉ cho auth)
+  - `jobs/` — BullMQ processors (chỉ cho mail/queue features)
+- ✅ File module nằm thẳng trong `src/modules/<feature>/`: `<feature>.module.ts`
 - ❌ Không dùng alias `@app/*` — tsconfig có định nghĩa nhưng code không dùng
-- ❌ Không tạo subfolder `controllers/`, `services/`, `repositories/`
 - ❌ Không tạo file re-export tổng hợp `index.ts` cho module
 
 ```ts
 // ✅ Đúng
-import { PrismaService } from '../../core/prisma/prisma.service';
-import { Prisma } from '../../generated/prisma/client';
+import { UserRepository } from '../repositories/user.repository';
+import { PrismaService } from '../../../core/prisma/prisma.service';
 
 // ❌ Sai
 import { PrismaService } from '@app/core/prisma/prisma.service';
@@ -143,12 +152,12 @@ createdAt: z.date(),
 ### 4. Auth
 
 - ✅ `JwtAuthGuard` là global guard (`APP_GUARD`) — mọi endpoint đều được bảo vệ mặc định
-- ✅ Endpoint public: dùng `@Public()` từ `src/core/decorators/public.decorator.ts`
+- ✅ Endpoint public: dùng `@Public()` từ `src/common/decorators/public.decorator.ts`
 - ✅ Controller cần auth: thêm `@ApiBearerAuth()` cho Swagger
 
 ```ts
 // ✅ Endpoint public
-import { Public } from '../../core/decorators/public.decorator';
+import { Public } from '../../../common/decorators/public.decorator';
 
 @Public()
 @Get('health')
@@ -160,41 +169,54 @@ health() { ... }
 export class UsersController { ... }
 ```
 
-### 5. Prisma 7
+### 5. Data access — Repository port pattern
 
-- ✅ Service inject `PrismaService` (extends `PrismaClient`) — không dùng repository class riêng
-- ✅ Không tìm thấy record → `throw new NotFoundException(\`User ${id} not found\`)` (template literal)
-- ✅ Lỗi Prisma: kiểm tra qua `instanceof Prisma.PrismaClientKnownRequestError` + `code`
-  - `P2002`: unique constraint
-  - `P2025`: record not found
-  - `P2003`: foreign key constraint
-- ✅ Multi-step writes → `prisma.$transaction([...])` hoặc `$transaction(async (tx) => …)`
-- ✅ Tránh N+1: dùng `include`/`select` thay vì loop query
+- ✅ **Service inject PORT** (`abstract class <Feature>Repository`) — KHÔNG inject `PrismaService` trực tiếp
+- ✅ **Port** (`repositories/<feature>.repository.ts`) là `abstract class <Feature>Repository` — đóng vai trò là TS type VÀ DI token; re-export model type qua `export type { <Model> }`; định nghĩa `Create<Feature>Data` và `Update<Feature>Data`
+- ✅ **Prisma impl** (`repositories/prisma-<feature>.repository.ts`) là class `@Injectable() Prisma<Feature>Repository extends <Feature>Repository` — file DUY NHẤT import `PrismaService` và `generated/prisma`
+- ✅ **Module wiring**: `{ provide: <Feature>Repository, useClass: Prisma<Feature>Repository }`
+- ✅ Service import kiểu model TỪ PORT (không import từ `generated/prisma` trực tiếp)
+- ❌ Service KHÔNG được gọi `this.prisma.*` hay import `generated/prisma`
 
 ```ts
-// ✅ Đúng — inject PrismaService
+// ✅ Đúng — port (repositories/user.repository.ts)
+export type { User };
+export type CreateUserData = { email: string; password: string; name?: string | null };
+export abstract class UserRepository {
+  abstract findById(id: string): Promise<User | null>;
+  abstract create(data: CreateUserData): Promise<User>;
+  // ...
+}
+
+// ✅ Đúng — Prisma impl (repositories/prisma-user.repository.ts)
+import { PrismaService } from '../../../core/prisma/prisma.service';
+import type { User } from '../../../generated/prisma/client';
+@Injectable()
+export class PrismaUserRepository extends UserRepository {
+  constructor(private readonly prisma: PrismaService) { super(); }
+  findById(id: string) { return this.prisma.user.findUnique({ where: { id } }); }
+}
+
+// ✅ Đúng — service inject PORT
+import { type User, UserRepository } from '../repositories/user.repository';
+@Injectable()
+export class UsersService {
+  constructor(private readonly users: UserRepository) {}
+}
+
+// ✅ Đúng — module wiring
+{ provide: UserRepository, useClass: PrismaUserRepository }
+
+// ❌ Sai — service inject PrismaService trực tiếp
 constructor(private readonly prisma: PrismaService) {}
-
-// ✅ Đúng — NotFoundException
-const user = await this.prisma.user.findUnique({ where: { id } });
-if (!user) throw new NotFoundException(`User ${id} not found`);
-
-// ✅ Đúng — xử lý lỗi Prisma
-import { Prisma } from '../../generated/prisma/client';
-
-if (error instanceof Prisma.PrismaClientKnownRequestError) {
-  if (error.code === 'P2002') throw new ConflictException('Email already exists');
-}
-
-// ✅ Đúng — N+1 phòng tránh
-const users = await this.prisma.user.findMany({ include: { posts: true } });
-
-// ❌ Sai — N+1
-const users = await this.prisma.user.findMany();
-for (const user of users) {
-  user.posts = await this.prisma.post.findMany({ where: { userId: user.id } });
-}
 ```
+
+Lỗi Prisma được xử lý trong Prisma impl qua `Prisma.PrismaClientKnownRequestError`:
+- `P2002`: unique constraint
+- `P2025`: record not found
+- `P2003`: foreign key constraint
+
+Multi-step writes dùng `prisma.$transaction([...])` hoặc `$transaction(async (tx) => …)` bên trong Prisma impl.
 
 ### 6. Date/Time — Temporal API
 
@@ -224,7 +246,9 @@ const expires = new Date(Date.now() + 3600 * 1000);
 ### 7. Testing (Jest)
 
 - ✅ File `*.spec.ts` **đặt cùng thư mục** với source (colocated), không đặt trong `__tests__/`
+  - Service spec đặt trong `services/`: `services/<feature>.service.spec.ts`
 - ✅ Mock = plain object + `useValue` trong `Test.createTestingModule`
+- ✅ Mock **repository PORT** (không mock `PrismaService`) trong test service
 - ✅ `jest.clearAllMocks()` trong `beforeEach`
 - ✅ Tên test mô tả **hành vi** — không bắt buộc "should … when …"
 - ✅ Assert cụ thể: `toHaveBeenCalledWith`, `rejects.toBeInstanceOf`, `rejects.toMatchObject({ status: 404 })`
@@ -233,14 +257,16 @@ const expires = new Date(Date.now() + 3600 * 1000);
 - ❌ Không đặt spec file trong `__tests__/`
 
 ```ts
-// ✅ Đúng
+// ✅ Đúng — mock repository PORT
 describe('UsersService', () => {
   let service: UsersService;
-  const mockPrisma = {
-    user: {
-      findUnique: jest.fn(),
-      create: jest.fn(),
-    },
+  const repo = {
+    findById: jest.fn(),
+    findByEmail: jest.fn(),
+    findAll: jest.fn(),
+    create: jest.fn(),
+    update: jest.fn(),
+    delete: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -248,14 +274,14 @@ describe('UsersService', () => {
     const module = await Test.createTestingModule({
       providers: [
         UsersService,
-        { provide: PrismaService, useValue: mockPrisma },
+        { provide: UserRepository, useValue: repo },
       ],
     }).compile();
     service = module.get(UsersService);
   });
 
   it('ném NotFoundException khi không tìm thấy user', async () => {
-    mockPrisma.user.findUnique.mockResolvedValue(null);
+    repo.findById.mockResolvedValue(null);
     await expect(service.findOne('999')).rejects.toBeInstanceOf(NotFoundException);
   });
 });
@@ -268,9 +294,9 @@ describe('UsersService', () => {
 ### Danh sách vi phạm (mặc định)
 
 ```
-src/modules/user/user.service.ts:42 — Dùng `new Date()` cho date logic → Thay bằng `Temporal.Now.instant()`
-src/modules/user/dto/create-user.dto.ts:8 — `z.string().email()` (Zod 3 style) → Dùng `z.email()` (Zod 4)
-src/modules/auth/auth.service.ts:15 — `z.date()` trong response DTO sẽ crash bootstrap → Dùng `z.any().transform(...)`
+src/modules/users/services/users.service.ts:42 — Dùng `new Date()` cho date logic → Thay bằng `Temporal.Now.instant()`
+src/modules/users/dto/create-user.dto.ts:8 — `z.string().email()` (Zod 3 style) → Dùng `z.email()` (Zod 4)
+src/modules/auth/services/auth.service.ts:15 — `z.date()` trong response DTO sẽ crash bootstrap → Dùng `z.any().transform(...)`
 ```
 
 Định dạng mỗi dòng: `file:line — vi phạm → cách fix`
@@ -302,3 +328,5 @@ Các pattern sau **không được dùng** — chúng thuộc project khác/cũ 
 - File re-export tổng hợp cho mỗi module
 - Factory config dạng `register-as` của `@nestjs/config` (không dùng trong project này)
 - Hardcode tên branch trong git diff range — luôn dùng biến `$BASE` thay vì cố định tên branch
+- Inject `PrismaService` trực tiếp vào service — phải qua repository port
+- Cấu trúc phẳng (flat) bỏ qua subfolder — luôn dùng feature-first layout với `controllers/`, `services/`, `repositories/`, `dto/`

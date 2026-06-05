@@ -41,7 +41,7 @@ pnpm prisma:generate  # Sinh Prisma client
 
 ### Auth opt-out — `@Public()` de mo endpoint
 - Global `JwtAuthGuard` bao ve MOI route mac dinh.
-- De lo route cong khai: gan decorator `@Public()` (tu `src/core/decorators/public.decorator.ts`).
+- De lo route cong khai: gan decorator `@Public()` (tu `src/common/decorators/public.decorator.ts`).
 - Controller can xac thuc: them `@ApiBearerAuth()`.
 
 ### Date trong response DTO — KHONG dung `z.date()`
@@ -57,19 +57,51 @@ pnpm prisma:generate  # Sinh Prisma client
 - Chuyen Prisma `Date` sang Temporal: `toTemporalInstant.call(date)` (KHONG phai `date.toTemporalInstant()`).
 - Tranh dung `new Date()` cho logic nghiep vu.
 
-### Import va cau truc module
-- Dung **relative imports** — khong co path alias trong thuc te.
-- Cau truc phang: `src/modules/<feature>/<feature>.controller.ts`, `<feature>.service.ts`, v.v.
-- Khong tao subfolder `controllers/` hay `services/`; khong tao barrel `index.ts`.
+### Cau truc du an — feature-first, co phan tang ro rang
 
-### PrismaService
-- Inject `PrismaService` truc tiep.
-- Khi khong tim thay ban ghi: `throw new NotFoundException(\`X ${id} not found\`)` (template literal).
-- Xu ly Prisma error qua `Prisma.PrismaClientKnownRequestError` — codes: `P2002` (unique), `P2025` (not found), `P2003` (foreign key).
+```
+src/
+├── common/          # cross-cutting concerns
+│   ├── decorators/  # @Public(), v.v.
+│   ├── filters/     # HttpExceptionFilter
+│   ├── guards/      # JwtAuthGuard
+│   └── interceptors/
+├── core/            # infrastructure (khong co business logic)
+│   ├── config/      # Zod-validated env
+│   ├── prisma/      # PrismaService (@Global)
+│   ├── queue/       # BullMQ root
+│   ├── messaging/   # RabbitMQ client
+│   └── health/      # GET /health
+└── modules/         # business features
+    ├── users/
+    │   ├── users.module.ts
+    │   ├── controllers/
+    │   ├── services/      # *.service.ts + *.service.spec.ts
+    │   ├── repositories/  # port + prisma impl
+    │   └── dto/
+    ├── auth/
+    ├── mail/
+    └── notifications/     # RabbitMQ consumer (truoc day: messaging/consumer)
+```
+
+- Dung **relative imports** — khong co path alias trong thuc te.
+- Khong tao file barrel `index.ts`.
+- Module file (`<feature>.module.ts`) nam thang trong `src/modules/<feature>/`.
+
+### Repository port pattern — data access
+
+- **Service inject PORT** (`abstract class <Feature>Repository`) — KHONG inject `PrismaService` truc tiep.
+- **PORT** (`repositories/<feature>.repository.ts`): `abstract class` dong vai tro TS type VA DI token; re-export model type qua `export type { <Model> }`; dinh nghia `Create<F>Data` / `Update<F>Data`.
+- **Prisma impl** (`repositories/prisma-<feature>.repository.ts`): file DUY NHAT import `PrismaService` va `generated/prisma`.
+- **Module wiring**: `{ provide: <Feature>Repository, useClass: Prisma<Feature>Repository }`.
+- Service import kieu model TU PORT, khong import tu `generated/prisma` truc tiep.
+
+Xem `src/modules/users/` la module tham chieu chinh xac nhat.
 
 ### Tests
 - File `*.spec.ts` dat CUNG THU MUC voi source (khong dung `__tests__/`).
-- Mock bang plain object `useValue` — khong dung `jest.createMockFromModule`.
+  - Service spec dat trong `services/`: `services/<feature>.service.spec.ts`.
+- Mock **repository PORT** bang plain object `useValue` — khong mock `PrismaService`.
 - Goi `jest.clearAllMocks()` trong `beforeEach`.
 
 ---
@@ -79,8 +111,8 @@ pnpm prisma:generate  # Sinh Prisma client
 | Command | Mo ta |
 |---|---|
 | `/coding-convention` | Quy uoc code — xem thu dong (passive) hoac quet va sua (`--fix`) |
-| `/review-code` | Review chat luong theo 10 tieu chi |
-| `/create-module` | Sinh feature module phang day du (Prisma + nestjs-zod) |
+| `/review-code` | Review chat luong theo 11 tieu chi (co tieu chi kien truc) |
+| `/create-module` | Sinh feature module feature-first day du (repository port + Prisma impl + nestjs-zod) |
 | `/create-dto` | Sinh Zod DTO: create / update / response / query |
-| `/create-test` | Sinh Jest spec colocated ben canh source |
+| `/create-test` | Sinh Jest spec colocated ben canh source (mock repository PORT) |
 | `/create-tdd` | Workflow red-green-refactor co huong dan |

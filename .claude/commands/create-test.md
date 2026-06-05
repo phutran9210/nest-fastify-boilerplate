@@ -6,59 +6,63 @@
 
 File test phải nằm **cùng thư mục** với file nguồn. Ví dụ:
 
-- Nguồn: `src/modules/users/users.service.ts`
-- Test:   `src/modules/users/users.service.spec.ts`
+- Nguồn: `src/modules/users/services/users.service.ts`
+- Test:   `src/modules/users/services/users.service.spec.ts`
 
 KHÔNG đặt test trong `__tests__/`. Không tạo thư mục riêng.
 
 ## Cấu trúc module test
 
-Dùng `Test.createTestingModule` với tất cả dependency được mock bằng **plain object** thông qua `useValue`. KHÔNG dùng `jest.mock(...)` trực tiếp để mock module, KHÔNG dùng `createMock<...>()`, KHÔNG dùng `getRepositoryToken`, KHÔNG dùng `@InjectRepository` (đây là pattern của TypeORM, không phải Prisma).
+Dùng `Test.createTestingModule` với tất cả dependency được mock bằng **plain object** thông qua `useValue`. KHÔNG dùng `jest.mock(...)` trực tiếp để mock module, KHÔNG dùng `createMock<...>()`, KHÔNG dùng `getRepositoryToken`, KHÔNG dùng `@InjectRepository` (đây là pattern của TypeORM, không phải dự án này).
 
-### Ví dụ đầy đủ — service dùng Prisma
+### Ví dụ đầy đủ — service dùng repository port
 
 ```ts
 import { Test } from '@nestjs/testing';
-import { PrismaService } from '../../core/prisma/prisma.service';
+import { NotFoundException } from '@nestjs/common';
+import { ProductRepository } from '../repositories/product.repository';
 import { ProductsService } from './products.service';
 
 describe('ProductsService', () => {
   let service: ProductsService;
-  const prisma = {
-    product: {
-      create: jest.fn(),
-      findUnique: jest.fn(),
-      findMany: jest.fn(),
-      update: jest.fn(),
-      delete: jest.fn(),
-    },
+  const repo = {
+    findById: jest.fn(),
+    findAll: jest.fn(),
+    create: jest.fn(),
+    update: jest.fn(),
+    delete: jest.fn(),
   };
 
   beforeEach(async () => {
     jest.clearAllMocks();
     const moduleRef = await Test.createTestingModule({
-      providers: [ProductsService, { provide: PrismaService, useValue: prisma }],
+      providers: [
+        ProductsService,
+        { provide: ProductRepository, useValue: repo },
+      ],
     }).compile();
     service = moduleRef.get(ProductsService);
   });
 
   it('findOne throws NotFoundException when the product does not exist', async () => {
-    prisma.product.findUnique.mockResolvedValue(null);
+    repo.findById.mockResolvedValue(null);
     await expect(service.findOne('missing')).rejects.toMatchObject({ status: 404 });
-    expect(prisma.product.findUnique).toHaveBeenCalledWith({ where: { id: 'missing' } });
+    expect(repo.findById).toHaveBeenCalledWith('missing');
   });
 
-  it('create delegates to prisma.product.create', async () => {
+  it('create delegates to repository.create and returns the new product', async () => {
     const created = { id: '1', name: 'A', price: 10 };
-    prisma.product.create.mockResolvedValue(created);
+    repo.create.mockResolvedValue(created);
     const result = await service.create({ name: 'A', price: 10 });
-    expect(prisma.product.create).toHaveBeenCalledWith({ data: { name: 'A', price: 10 } });
+    expect(repo.create).toHaveBeenCalledWith({ name: 'A', price: 10 });
     expect(result).toBe(created);
   });
 });
 ```
 
-### Mock dependency service (không phải Prisma)
+> Mock là **repository PORT** (`ProductRepository`), không phải `PrismaService`. Service không biết gì về Prisma.
+
+### Mock dependency service (không phải repository)
 
 Nếu service cần inject một service khác (ví dụ `UsersService`), tạo plain object tương tự:
 
@@ -73,7 +77,7 @@ const users = { findByEmail: jest.fn(), create: jest.fn() };
 - `beforeEach` luôn gọi `jest.clearAllMocks()` trước khi compile module.
 - Tên test mô tả **hành vi** bằng ngôn ngữ tự nhiên, ví dụ:
   - `'findOne throws NotFoundException when the user does not exist'`
-  - `'create delegates to prisma.user.create and returns the new user'`
+  - `'create delegates to repository.create and returns the new user'`
   - KHÔNG bắt buộc template cứng `should … when …`.
   - KHÔNG thêm comment `// Arrange / // Act / // Assert`.
 - Assertion phải **cụ thể**:
@@ -85,7 +89,9 @@ const users = { findByEmail: jest.fn(), create: jest.fn() };
 
 1. Đọc file tại `$ARGUMENTS` để hiểu class, constructor dependencies, và các method public.
 2. Xác định tên file spec: thay `.ts` thành `.spec.ts`, giữ nguyên đường dẫn thư mục.
-3. Tạo mock object cho từng dependency (PrismaService hoặc service khác) dưới dạng plain object với `jest.fn()` cho mỗi method cần dùng.
+3. Tạo mock object cho từng dependency:
+   - Nếu service inject repository PORT (abstract class) → mock PORT đó bằng plain object.
+   - Nếu service inject một service khác → mock service đó bằng plain object.
 4. Viết ít nhất một test case cho mỗi method public của class:
    - Happy path (trả về đúng dữ liệu).
    - Error/edge case nếu method có xử lý lỗi (ví dụ: not found, validation fail).
@@ -99,5 +105,5 @@ const users = { findByEmail: jest.fn(), create: jest.fn() };
 pnpm test
 
 # Chạy riêng file vừa tạo
-pnpm test src/modules/users/users.service.spec.ts
+pnpm test src/modules/users/services/users.service.spec.ts
 ```

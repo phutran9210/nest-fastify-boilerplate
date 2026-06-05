@@ -55,7 +55,7 @@ const user = prisma.user.findUnique({ where: { id } });
 ### 2. Bảo mật (Security)
 
 Kiểm tra:
-- Auth là **opt-out**: `JwtAuthGuard` global bảo vệ mọi route. Chỉ dùng `@Public()` (từ `src/core/decorators/public.decorator.ts`) cho endpoint thực sự công khai.
+- Auth là **opt-out**: `JwtAuthGuard` global bảo vệ mọi route. Chỉ dùng `@Public()` (từ `src/common/decorators/public.decorator.ts`) cho endpoint thực sự công khai.
 - **WARN/FAIL** nếu `@Public()` được đặt trên endpoint nhạy cảm (thay đổi mật khẩu, admin action, v.v.)
 - Ẩn dữ liệu nhạy cảm (ví dụ `password`) được xử lý **chủ yếu** qua `@ZodSerializerDto(<Feature>ResponseDto)` — response schema của DTO loại bỏ các trường nhạy cảm. Trả về entity Prisma đầy đủ là **chấp nhận được** khi DTO response đã lọc đúng.
 - `select` trong Prisma là biện pháp bảo vệ **khuyến nghị** (defense-in-depth, không bắt buộc) — không mandate `select` nếu `@ZodSerializerDto` đã xử lý.
@@ -196,11 +196,36 @@ expect(result).toBeDefined();
 
 ---
 
-### 10. Quy ước dự án (Conventions)
+### 10. Kiến trúc & phân tầng (Architecture)
+
+Kiểm tra việc tuân thủ kiến trúc feature-first và repository port pattern:
+
+- **`common/` vs `core/`**: cross-cutting concerns (decorators, filters, guards, interceptors) thuộc `src/common/`; infrastructure (config, prisma, queue, messaging, health) thuộc `src/core/`. FAIL nếu đặt nhầm tầng.
+- **Service không được gọi `this.prisma.*` trực tiếp** và không được import từ `generated/prisma` — FAIL nếu vi phạm.
+- **Chỉ `prisma-<feature>.repository.ts`** được import `PrismaService` và `generated/prisma` — FAIL nếu service hay controller làm vậy.
+- **Wiring port ↔ impl tồn tại** trong module: `{ provide: <Feature>Repository, useClass: Prisma<Feature>Repository }` — FAIL nếu thiếu, vì NestJS sẽ không resolve được dependency.
+- **Service inject PORT** (abstract class), không inject impl trực tiếp — WARN nếu inject impl.
+- Cấu trúc thư mục đúng: `controllers/`, `services/`, `repositories/`, `dto/` — WARN nếu files nằm phẳng ở root module.
+
+Ví dụ lỗi:
+```ts
+// FAIL: service import PrismaService trực tiếp
+import { PrismaService } from '../../../core/prisma/prisma.service';
+constructor(private readonly prisma: PrismaService) {}
+// → Tạo repository port + impl; service chỉ inject PORT
+
+// FAIL: thiếu wiring trong module
+providers: [ProductsService, PrismaProductRepository]
+// → providers: [ProductsService, { provide: ProductRepository, useClass: PrismaProductRepository }]
+```
+
+---
+
+### 11. Quy ước dự án (Conventions)
 
 Nhường cho lệnh `/coding-convention` để kiểm tra đầy đủ checklist convention. Ở đây chỉ cần kiểm tra:
 - Biome format/lint (chạy `pnpm check` hoặc `pnpm lint`)
-- Import path dùng alias `@/` thay vì đường dẫn tương đối dài
+- Relative imports (không dùng alias `@app/*`)
 - Không dùng `any` trừ khi có comment giải thích
 
 ---

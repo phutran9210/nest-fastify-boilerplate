@@ -50,6 +50,26 @@ describe('ResponseInterceptor', () => {
     });
   });
 
+  it('returns totalPages 0 when limit is 0', async () => {
+    const req = { id: 'req-3', url: '/users' };
+    const res = { header: jest.fn() };
+    const payload = { items: [], page: 1, limit: 0, total: 0 };
+    const handler = { handle: () => of(payload) } as never;
+
+    const result = (await lastValueFrom(
+      interceptor.intercept(httpContext(req, res), handler),
+    )) as Record<string, any>;
+
+    expect(result.meta.pagination).toEqual({
+      page: 1,
+      limit: 0,
+      total: 0,
+      totalPages: 0,
+      hasNext: false,
+      hasPrev: false,
+    });
+  });
+
   it('skips non-http contexts (e.g. RMQ)', async () => {
     const ctx = { getType: () => 'rpc' } as never;
     const handler = { handle: () => of('raw') } as never;

@@ -14,15 +14,16 @@ type PaginatedPayload = { items: unknown[]; page: number; limit: number; total: 
 // List endpoints return the `paginatedSchema` shape; detect it so we can lift `items` into
 // `data` and move page/limit/total into `meta.pagination`.
 function isPaginated(v: unknown): v is PaginatedPayload {
-  return (
-    !!v &&
-    typeof v === 'object' &&
-    'items' in v &&
-    Array.isArray((v as { items: unknown }).items) &&
-    'page' in v &&
-    'limit' in v &&
-    'total' in v
-  );
+  if (
+    !v ||
+    typeof v !== 'object' ||
+    !('items' in v) ||
+    !Array.isArray((v as { items: unknown }).items)
+  ) {
+    return false;
+  }
+  const o = v as Record<string, unknown>;
+  return typeof o.page === 'number' && typeof o.limit === 'number' && typeof o.total === 'number';
 }
 
 function buildPagination(page: number, limit: number, total: number): PaginationMeta {
@@ -38,8 +39,9 @@ export class ResponseInterceptor implements NestInterceptor {
       return next.handle();
     }
 
-    const req = context.switchToHttp().getRequest();
-    const res = context.switchToHttp().getResponse();
+    const http = context.switchToHttp();
+    const req = http.getRequest();
+    const res = http.getResponse();
     const requestId = String(req?.id ?? '');
     const path: string = req?.url ?? '';
 

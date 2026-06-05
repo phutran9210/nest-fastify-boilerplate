@@ -1,5 +1,5 @@
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
-import { ZodValidationException } from 'nestjs-zod';
+import { BadRequestException, ConflictException, Logger, NotFoundException } from '@nestjs/common';
+import { ZodSerializationException, ZodValidationException } from 'nestjs-zod';
 import { ZodError } from 'zod';
 import { HttpExceptionFilter } from './http-exception.filter';
 
@@ -71,5 +71,25 @@ describe('HttpExceptionFilter', () => {
     (config as { get: jest.Mock }).get.mockReturnValue('production');
     filter.catch(new Error('secret detail'), host(req, res));
     expect(body().error.message).toBe('Internal server error');
+  });
+
+  it('maps ZodSerializationException to 500 / INTERNAL_ERROR, logs server-side, no leaked details', () => {
+    const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const zodError = new ZodError([
+      { code: 'custom', path: ['createdAt'], message: 'Expected string' } as never,
+    ]);
+    filter.catch(new ZodSerializationException(zodError), host(req, res));
+    expect(res.status).toHaveBeenCalledWith(500);
+    expect(body().error.code).toBe('INTERNAL_ERROR');
+    expect(body().error.message).toBe('Internal server error');
+    expect(body().error.details).toBeUndefined();
+    expect(errorSpy).toHaveBeenCalled();
+  });
+
+  it('includes ISO timestamp, request path, and requestId in meta', () => {
+    filter.catch(new NotFoundException('x'), host(req, res));
+    expect(body().meta.path).toBe('/users');
+    expect(body().meta.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(body().meta.requestId).toBe('req-1');
   });
 });

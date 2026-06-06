@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import type { Redis } from 'ioredis';
-import { REDIS_CLIENT } from '../redis.constants';
 import { type RateLimitResult, RateLimitService } from '../ports/rate-limit.service.port';
+import { REDIS_CLIENT } from '../redis.constants';
 
 @Injectable()
 export class RedisRateLimitService extends RateLimitService {

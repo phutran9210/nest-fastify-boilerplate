@@ -2,9 +2,9 @@ import { randomBytes } from 'node:crypto';
 import { AppException } from '@common/exceptions/app.exception';
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import type { Redis } from 'ioredis';
+import { type Lock, LockService } from '../ports/lock.service.port';
 import { REDIS_CLIENT } from '../redis.constants';
 import { RedisMessage } from '../redis.messages';
-import { type Lock, LockService } from '../ports/lock.service.port';
 
 @Injectable()
 export class RedisLockService extends LockService {

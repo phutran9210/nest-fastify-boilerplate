@@ -1,7 +1,7 @@
 import { Inject, Injectable, type OnModuleInit } from '@nestjs/common';
 import type { Redis } from 'ioredis';
-import { REDIS_CLIENT, REDIS_SUBSCRIBER } from '../redis.constants';
 import { PubSubService } from '../ports/pubsub.service.port';
+import { REDIS_CLIENT, REDIS_SUBSCRIBER } from '../redis.constants';
 
 @Injectable()
 export class RedisPubSubService extends PubSubService implements OnModuleInit {

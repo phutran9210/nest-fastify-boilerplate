@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: app
@@ -9,16 +9,17 @@ services:
     ports:
       - '5433:5432'
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # PG18+ khuyến nghị mount tại /var/lib/postgresql (data nằm trong thư mục con theo major version)
+      - pgdata:/var/lib/postgresql
 
   redis:
-    image: redis:7-alpine
+    image: redis:8-alpine
     restart: unless-stopped
     ports:
       - '6380:6379'
 
   rabbitmq:
-    image: rabbitmq:3-management
+    image: rabbitmq:4-management-alpine
     restart: unless-stopped
     ports:
       - '5673:5672'

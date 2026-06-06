@@ -12,7 +12,7 @@ Tài liệu ngắn gọn cho Claude. Đọc kỹ trước khi sinh code.
 | ORM | Prisma 7 — generator `prisma-client` (ESM), client tại `src/generated/prisma`, import từ `src/generated/prisma/client`, driver adapter `@prisma/adapter-pg` |
 | Validation / Serialization | nestjs-zod + Zod 4 — global `ZodValidationPipe` + `ZodSerializerInterceptor` |
 | Auth | passport-jwt, global `JwtAuthGuard` |
-| Queue / Messaging | BullMQ (`@nestjs/bullmq`), RabbitMQ microservice (`@nestjs/microservices`) |
+| Queue / Messaging | BullMQ (`@nestjs/bullmq`) chạy ở **worker process riêng** + Bull Board (`@bull-board/*`); RabbitMQ microservice (`@nestjs/microservices`) |
 | Ngày giờ | `@js-temporal/polyfill` (Temporal API) |
 | Logging | Pino (`nestjs-pino`) — global `LoggerModule` tại `src/core/logger/`; `pino-pretty` chỉ ở dev, prod là JSON; thay logger Nest qua `app.useLogger` |
 | Tooling | Biome (lint + format), Jest, pnpm |
@@ -23,13 +23,17 @@ Tài liệu ngắn gọn cho Claude. Đọc kỹ trước khi sinh code.
 ## Lệnh chính (pnpm — KHÔNG dùng npm/yarn)
 
 ```bash
-pnpm start:dev        # Khởi động dev server
-pnpm test             # Chạy toàn bộ Jest tests
+pnpm start:dev        # Khởi động API (producer) dev server
+pnpm start:worker:dev # Khởi động Worker process (BullMQ + Bull Board) — watch
+pnpm test             # Chạy toàn bộ Jest unit tests
+pnpm test:e2e         # Chạy e2e (jest.e2e.config.js, test/e2e/*.e2e-spec.ts)
 pnpm check            # Biome format + lint --write
 pnpm lint             # Biome lint (không ghi)
 pnpm prisma:migrate   # Chạy Prisma migrations
 pnpm prisma:generate  # Sinh Prisma client
 ```
+
+> Production worker: `pnpm start:worker:prod` (= `node dist/src/main.worker.js`). `nest build` biên dịch CẢ HAI entrypoint (`main`, `main.worker`).
 
 ---
 
@@ -87,7 +91,12 @@ pnpm prisma:generate  # Sinh Prisma client
 
 ```
 src/
+├── main.ts          # entrypoint API (producer, :PORT)
+├── main.worker.ts   # entrypoint Worker (BullMQ + Bull Board, :WORKER_PORT)
+├── app.module.ts    # root module API
+├── worker.module.ts # root module Worker (Redis-only, KHONG Prisma/RMQ)
 ├── common/          # cross-cutting concerns
+│   ├── auth/        # basic-auth.ts (verifyBasicAuth + Fastify hook cho Bull Board)
 │   ├── decorators/  # @Public(), v.v.
 │   ├── filters/     # HttpExceptionFilter
 │   ├── guards/      # JwtAuthGuard
@@ -98,7 +107,7 @@ src/
 │   ├── queue/       # BullMQ root
 │   ├── messaging/   # RabbitMQ client
 │   ├── redis/        # RedisModule @Global: Cache/Lock/RateLimit/PubSub (ioredis + port pattern)
-│   └── health/      # GET /health
+│   └── health/      # GET /health (reuse o ca API lan Worker)
 └── modules/         # business features
     ├── users/
     │   ├── users.module.ts
@@ -108,7 +117,8 @@ src/
     │   ├── repositories/  # *.repository.port.ts (PORT) + *.repository.prisma.ts (IMPL)
     │   └── dto/
     ├── auth/
-    ├── mail/
+    ├── mail/                 # mail.module.ts (producer) + mail-worker.module.ts (processor)
+    │   └── jobs/             # mail.producer.ts, mail.processor.ts
     └── notifications/     # RabbitMQ consumer (truoc day: messaging/consumer)
 ```
 
@@ -141,11 +151,22 @@ Xem `src/modules/users/` la module tham chieu chinh xac nhat.
 - PubSub (ioredis) không thay thế RabbitMQ cho việc cần durable/fanout cross-service.
 - `buildRedisBaseOptions` được dùng chung cho BullMQ (KHÔNG thêm `keyPrefix` vào BullMQ — nó có cơ chế prefix riêng).
 
+### Worker process — BullMQ chạy process/cổng độc lập
+- **Hai process, một codebase, hai entrypoint**: API (`src/main.ts`, `:PORT`) thuần **producer** (chỉ enqueue); Worker (`src/main.worker.ts`, `:WORKER_PORT` mặc định 3001) chạy `@Processor` + Bull Board. Mục tiêu: job nặng KHÔNG chiếm event loop của API.
+- **WorkerModule** (`src/worker.module.ts`): chỉ nạp hạ tầng worker CẦN — `CoreConfigModule`, `LoggerModule`, `RedisModule`, `QueueModule`, `BullBoardModule.forRoot({ route: '/admin/queues', adapter: FastifyAdapter })` + các `<feature>-worker.module.ts`. Reuse `HealthController` (`:WORKER_PORT/health`). **KHÔNG** import `PrismaModule`/`MessagingModule` (worker không mở DB/RMQ) và KHÔNG đăng ký global `APP_*`.
+- **Feature có background job → tách producer/consumer**:
+  - `<feature>.module.ts` (phía API): giữ `registerQueue` + producer, **BỎ** processor.
+  - `<feature>-worker.module.ts` (phía worker): `registerQueue` + `BullBoardModule.forFeature({ name, adapter: BullMQAdapter })` + `Processor`. Feature nào cần DB thì module worker NÀY tự import `PrismaModule`.
+  - Module tham chiếu: `src/modules/mail/` (`mail.module.ts` + `mail-worker.module.ts`).
+- **Concurrency**: đặt qua `@Processor('<q>', { concurrency })`. Đọc từ env bằng helper THUẦN (vd `mailWorkerConcurrency()` đọc `process.env.MAIL_WORKER_CONCURRENCY`, fallback an toàn) — KHÔNG dùng ConfigService vì chưa khả dụng lúc decorate class.
+- **Bull Board** `/admin/queues` (CHỈ trên worker): bảo vệ bằng **Fastify `onRequest` hook** trong `main.worker.ts` (KHÔNG phải Nest middleware — bull-board đăng ký route qua plugin Fastify đóng gói; hook gắn vào `adapter.getInstance()` TRƯỚC `NestFactory.create`). Helper auth thuần: `src/common/auth/basic-auth.ts`. Route hook phải KHỚP `BullBoardModule.forRoot({ route })` — xem cảnh báo footgun global-prefix trong `main.worker.ts`.
+- **Env worker** (trong `env.schema.ts`, cả 2 process validate CHUNG schema): `WORKER_PORT` (3001), `MAIL_WORKER_CONCURRENCY` (5), `BULLBOARD_USER` (admin), `BULLBOARD_PASSWORD` (KHÔNG default — `superRefine` **bắt buộc** ở `production`; dev fallback `admin`).
+
 ### Tests — tach rieng trong `test/`, KHONG colocated
 - Test KHONG nam canh source nua. Cay `test/` phan chieu cau truc `src/`:
   - **Unit**: `test/unit/<duong-dan-mirror-src>/<ten>.spec.ts`.
     - Vi du: source `src/modules/users/services/users.service.ts` → test `test/unit/modules/users/services/users.service.spec.ts`.
-  - **E2E / integration**: `test/e2e/*.e2e-spec.ts` (dat dan khi can).
+  - **E2E / integration**: `test/e2e/*.e2e-spec.ts`, chay qua `pnpm test:e2e` (config rieng `jest.e2e.config.js`). Main `jest.config.js` (`.spec.ts$`) KHONG nhat file `*.e2e-spec.ts`.
   - KHONG dung `__tests__/`.
 - **Import source trong test luon dung path alias** (`@common/*`, `@core/*`, `@modules/*`, `@generated/*`) — vi test nam ngoai module nen khong dung relative. (Quy uoc "relative trong cung module" o tren CHI ap dung cho file source trong `src/`.)
 - Cau hinh:

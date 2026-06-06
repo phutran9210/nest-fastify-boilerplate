@@ -11,6 +11,12 @@ async function bootstrap(): Promise<void> {
   // Gắn auth hook vào instance TRƯỚC khi Nest init/ready → áp được cho route do Bull Board
   // (plugin Fastify) đăng ký. Đọc creds qua process.env vì ConfigService chưa có lúc này;
   // production vẫn được CoreConfigModule fail-fast nếu thiếu BULLBOARD_PASSWORD.
+  //
+  // ⚠️ Route '/admin/queues' phải KHỚP với `BullBoardModule.forRoot({ route })` trong
+  // worker.module.ts. Hook lọc theo prefix literal của `req.url`, KHÔNG biết global prefix.
+  // Nếu sau này thêm `app.setGlobalPrefix(x)` cho worker, URL thật của Bull Board thành
+  // `/x/admin/queues` còn hook vẫn khớp '/admin/queues' → dashboard HỞ (không bị chặn).
+  // Khi đó phải cập nhật prefix của hook (và route forRoot) cho đồng bộ.
   const user = process.env.BULLBOARD_USER ?? 'admin';
   const pass = process.env.BULLBOARD_PASSWORD ?? 'admin';
   adapter.getInstance().addHook('onRequest', createBullBoardAuthHook('/admin/queues', user, pass));

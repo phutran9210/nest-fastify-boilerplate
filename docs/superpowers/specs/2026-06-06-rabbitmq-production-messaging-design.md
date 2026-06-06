@@ -26,7 +26,7 @@ Mục tiêu: nâng lên **nền tảng messaging tái dùng** chuẩn production
 | Retry | **Tiered backoff** (5s/30s/5m, configurable) | Version-agnostic; `x-delivery-limit` là backstop crash-loop độc lập. |
 | Đảm bảo DB→event | **Transactional outbox đầy đủ** | Ghi event cùng transaction nghiệp vụ → relay publish ra RMQ. At-least-once DB→broker, không mất event khi crash/publish fail. |
 | Mô hình queue | **Per-subscription queue** (`<subscriber>.<event>.q`) | Mỗi subscriber nhận 1 bản sao (fanout), không competing consumers. |
-| Routing không khớp | **Alternate-exchange** `app.unrouted` + `mandatory: true` | Không drop âm thầm message chưa có binding. |
+| Routing không khớp | **Alternate-exchange** `app.unrouted` (mandatory chỉ optional) | Không drop âm thầm message chưa có binding. AE đã "route" message nên `mandatory` thành thừa — chỉ bật nếu muốn return-callback thay vì AE. |
 
 **Yêu cầu hạ tầng:** RabbitMQ **≥ 3.8** (quorum queues).
 
@@ -68,7 +68,9 @@ Tên exchange suy từ `RABBITMQ_EXCHANGE` (base, mặc định `app`):
 | `app.dlx` | topic, durable | Dead-letter cuối. |
 | `app.unrouted` | fanout, durable | Bắt message không khớp binding nào. |
 
-**Khai báo topology declarative trong shared `messaging.module.ts` → cả API lẫn worker assert** (idempotent), nên exchange/queue/binding tồn tại trước khi có message — không phụ thuộc thứ tự khởi động. (Giải quyết rủi ro unroutable-drop.)
+**Assert topology TẬP TRUNG ở shared `messaging.module.ts`** (single source từ `topology.ts`), chạy ở **cả API lẫn worker** lúc connection-init (idempotent) → exchange/queue/binding tồn tại trước khi có message, không phụ thuộc thứ tự khởi động (gồm cả `app.unrouted.q` để AE thật sự có chỗ chứa). Cơ chế: khai báo `exchanges` + `queues`/`bindings` trong `forRoot` (golevelup top-level config) — hoặc nếu version không hỗ trợ đủ thì assert tường minh qua `managedConnection.addSetup(ch => ch.assertQueue/assertExchange/bindQueue)`.
+
+> **Tránh double-assert PRECONDITION_FAILED**: chỉ assert queue/binding ở MỘT nơi (shared module). `@RabbitSubscribe` của consumer dùng **`createQueueIfNotExists: false`** (chỉ attach consumer, KHÔNG tự assert lại) → không lệch args với khai báo tập trung. Mọi args (quorum, DLX, delivery-limit, TTL) lấy từ cùng `topology.ts`.
 
 **Per subscription** (vd subscriber `mail` nghe `user.registered`, helper `declareSubscriptionTopology({ subscriber, event })`):
 
@@ -92,7 +94,7 @@ Tên exchange suy từ `RABBITMQ_EXCHANGE` (base, mặc định `app`):
 2. **Non-retryable** (payload sai schema, lỗi nghiệp vụ vĩnh viễn): `await` publish `app.dlx` → **ack**. Không retry.
 3. `x-attempt < RABBITMQ_MAX_RETRIES`: `await` publish `app.retry` đúng tier (`rk = <sub>.<event>.r<attempt>`), tăng `x-attempt`, gắn `x-error` → **ack**. Hết TTL tier → về work queue.
 4. `x-attempt ≥ RABBITMQ_MAX_RETRIES`: `await` publish `app.dlx` (kèm `x-error`/`x-attempt`/`x-failed-at`) → **ack**.
-5. **Publish trong các bước trên BẮT BUỘC dùng confirm channel + `await`.** Nếu publish FAIL → **KHÔNG ack** bản gốc → trả `Nack(true)` (requeue) để không mất message; `x-delivery-limit` chặn loop vô hạn.
+5. **Publish trong các bước trên phải `await` để biết kết quả confirm.** golevelup `AmqpConnection.publish` delegate qua `amqp-connection-manager` (confirm channel mặc định) nên promise resolve khi broker ack — **xác minh ở version cài đặt**; nếu version trả `void` thì publish qua confirm channel của managed connection (`channel.publish` + `waitForConfirms`). Nếu publish FAIL/timeout → **KHÔNG ack** bản gốc → `Nack(true)` (requeue) để không mất message; `x-delivery-limit` chặn loop vô hạn.
 6. `x-delivery-limit` (quorum) là lưới an toàn độc lập khi consumer chết trước lúc ack.
 
 **Số tier = độ dài `RABBITMQ_RETRY_DELAYS_MS`.** `attempt` vượt số tier → dùng tier cuối.
@@ -160,7 +162,7 @@ model OutboxEvent {
 
 | File | Trách nhiệm |
 |---|---|
-| `messaging.module.ts` | `RabbitMQModule.forRootAsync` (uri, 4 exchange, queue+binding declarative, channel+prefetch, `connectionInitOptions.wait=false`, `defaultPublishOptions.persistent=true`, publisher confirms). API: producer-only (`registerHandlers:false`); worker: handlers. `@Global`, export `EventPublisherService`. |
+| `messaging.module.ts` | `RabbitMQModule.forRootAsync` (uri, 4 exchange, **toàn bộ queue+binding assert tập trung** từ `topology.ts`, channel+prefetch, `connectionInitOptions.wait=false`, `defaultPublishOptions.persistent=true`). API: producer-only (`registerHandlers:false` — đã xác nhận là option cho "API vs worker roles"); worker: handlers (`createQueueIfNotExists:false`). `@Global`, export `EventPublisherService`. |
 | `messaging.constants.ts` | Tên exchange (từ env), helper tên queue/rk theo `{subscriber,event}`, tên header. |
 | `messaging.contracts.ts` | Registry Zod. |
 | `event-publisher.service.ts` | `publish(rk, payload, opts?)`: validate contract, set `messageId`/`timestamp`/`x-attempt=0`/`x-request-id`/`persistent`/`mandatory`, `AmqpConnection.publish('app.events', rk, ...)` (await confirm). |
@@ -246,3 +248,11 @@ model OutboxEvent {
 - **Quorum yêu cầu RMQ ≥ 3.8**; **đổi loại/args queue không sửa tại chỗ** → xóa/migrate queue cũ (`notifications_queue`) khi triển khai.
 - **Migration Prisma** thêm `OutboxEvent` (`pnpm prisma:migrate` + `prisma:generate`).
 - **Relay nhiều instance**: `FOR UPDATE SKIP LOCKED` để không publish trùng; vẫn at-least-once (consumer dedup lo phần trùng).
+- **Phụ thuộc version golevelup (xác minh khi cài)**: (a) `AmqpConnection.publish` trả promise-resolve-on-confirm hay `void` (mục 5 có fallback); (b) hỗ trợ top-level `queues`/`bindings` trong `forRoot` và `createQueueIfNotExists:false` ở `@RabbitSubscribe` (mục 4 có fallback `addSetup`). Pin version golevelup và kiểm tra 2 điểm này ngay bước cài.
+
+---
+
+## 16. Đã verify qua context7 (2026-06-06)
+
+- **golevelup** (`/websites/golevelup_github_io_nestjs_modules_rabbitmq`): `registerHandlers:false` (API vs worker roles), `connectionInitOptions.wait:false`, `defaultPublishOptions.persistent`, `channels.prefetchCount`, `bindings[]` trong `@RabbitSubscribe`, `Nack(requeue)` — đều xác nhận. `publish` mô tả "fire-and-forget" → confirm-await cần xác minh ở version cài (mục 5).
+- **RabbitMQ** (`/rabbitmq/rabbitmq-website`): `x-message-ttl` + `x-dead-letter-exchange` (queue args), alternate-exchange/BasicReturn cho unroutable, quorum + DLX + `x-delivery-limit`, delayed-retry policy (4.3, ngoài phạm vi) — xác nhận pattern tiered-retry là chuẩn.

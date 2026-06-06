@@ -21,24 +21,24 @@ export class PrismaUserRepository extends UserRepository {
   }
 
   findById(id: string): Promise<User | null> {
-    return this.prisma.user.findUnique({ where: { id } });
+    return this.prisma.db.user.findUnique({ where: { id } });
   }
 
   findByEmail(email: string): Promise<User | null> {
-    return this.prisma.user.findUnique({ where: { email } });
+    return this.prisma.db.user.findUnique({ where: { email } });
   }
 
   findAll(params?: FindUsersParams): Promise<User[]> {
-    return this.prisma.user.findMany({ skip: params?.skip, take: params?.take });
+    return this.prisma.db.user.findMany({ skip: params?.skip, take: params?.take });
   }
 
   count(): Promise<number> {
-    return this.prisma.user.count();
+    return this.prisma.db.user.count();
   }
 
   async create(data: CreateUserData): Promise<User> {
     try {
-      return await this.prisma.user.create({ data });
+      return await this.prisma.db.user.create({ data });
     } catch (e) {
       throw this.mapError(e);
     }
@@ -46,7 +46,7 @@ export class PrismaUserRepository extends UserRepository {
 
   async update(id: string, data: UpdateUserData): Promise<User> {
     try {
-      return await this.prisma.user.update({ where: { id }, data });
+      return await this.prisma.db.user.update({ where: { id }, data });
     } catch (e) {
       throw this.mapError(e);
     }
@@ -54,7 +54,7 @@ export class PrismaUserRepository extends UserRepository {
 
   async delete(id: string): Promise<User> {
     try {
-      return await this.prisma.user.delete({ where: { id } });
+      return await this.prisma.db.user.delete({ where: { id } });
     } catch (e) {
       throw this.mapError(e);
     }

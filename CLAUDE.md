@@ -12,7 +12,7 @@ Tài liệu ngắn gọn cho Claude. Đọc kỹ trước khi sinh code.
 | ORM | Prisma 7 — generator `prisma-client` (ESM), client tại `src/generated/prisma`, import từ `src/generated/prisma/client`, driver adapter `@prisma/adapter-pg` |
 | Validation / Serialization | nestjs-zod + Zod 4 — global `ZodValidationPipe` + `ZodSerializerInterceptor` |
 | Auth | passport-jwt, global `JwtAuthGuard` |
-| Queue / Messaging | BullMQ (`@nestjs/bullmq`) chạy ở **worker process riêng** + Bull Board (`@bull-board/*`); RabbitMQ microservice (`@nestjs/microservices`) |
+| Queue / Messaging | BullMQ (`@nestjs/bullmq`) chạy ở **worker process riêng** + Bull Board (`@bull-board/*`); RabbitMQ (`@golevelup/nestjs-rabbitmq`) — topology quorum + DLX + retry-tier + alternate-exchange; producer ở API, consumer + outbox relay ở **worker** |
 | Ngày giờ | `@js-temporal/polyfill` (Temporal API) |
 | Logging | Pino (`nestjs-pino`) — global `LoggerModule` tại `src/core/logger/`; `pino-pretty` chỉ ở dev, prod là JSON; thay logger Nest qua `app.useLogger` |
 | Tooling | Biome (lint + format), Jest, pnpm |
@@ -92,9 +92,9 @@ pnpm prisma:generate  # Sinh Prisma client
 ```
 src/
 ├── main.ts          # entrypoint API (producer, :PORT)
-├── main.worker.ts   # entrypoint Worker (BullMQ + Bull Board, :WORKER_PORT)
+├── main.worker.ts   # entrypoint Worker (BullMQ + Bull Board + RMQ consumer, :WORKER_PORT)
 ├── app.module.ts    # root module API
-├── worker.module.ts # root module Worker (Redis-only, KHONG Prisma/RMQ)
+├── worker.module.ts # root module Worker (Redis + Prisma + RMQ consumer + Outbox relay)
 ├── common/          # cross-cutting concerns
 │   ├── auth/        # basic-auth.ts (verifyBasicAuth + Fastify hook cho Bull Board)
 │   ├── decorators/  # @Public(), v.v.
@@ -119,7 +119,7 @@ src/
     ├── auth/
     ├── mail/                 # mail.module.ts (producer) + mail-worker.module.ts (processor)
     │   └── jobs/             # mail.producer.ts, mail.processor.ts
-    └── notifications/     # RabbitMQ consumer (truoc day: messaging/consumer)
+    └── notifications/     # RabbitMQ consumer (NotificationsConsumerModule)
 ```
 
 - **Path alias cho import vuot cap (khac module/layer)** — khai bao o `tsconfig.json` (`paths`), `.swcrc` (`jsc.baseUrl` + `jsc.paths`) va `jest.config.js` (`moduleNameMapper`):
@@ -151,9 +151,28 @@ Xem `src/modules/users/` la module tham chieu chinh xac nhat.
 - PubSub (ioredis) không thay thế RabbitMQ cho việc cần durable/fanout cross-service.
 - `buildRedisBaseOptions` được dùng chung cho BullMQ (KHÔNG thêm `keyPrefix` vào BullMQ — nó có cơ chế prefix riêng).
 
+### RabbitMQ / Messaging — `@golevelup/nestjs-rabbitmq`
+
+- **MessagingModule** (`src/core/messaging/`): `MessagingModule.forRoot({ consumer })` — API nạp với `consumer: false` (producer-only, `registerHandlers: false`); Worker nạp với `consumer: true` (đăng ký handler + topology assert).
+- **Exchanges** (tên suy từ env `RABBITMQ_EXCHANGE`, mặc định `app`):
+  - `app.events` (topic) — exchange chính, có `alternate-exchange: app.unrouted`.
+  - `app.retry` (topic) — retry-tier queues bind vào đây.
+  - `app.dlx` (topic) — dead-letter exchange; message hết retry vào DLQ.
+- **Topology tập trung** tại `src/core/messaging/topology.ts` — assert toàn bộ queues/exchanges khi worker khởi động. Consumer dùng `@RabbitSubscribe({ createQueueIfNotExists: false })` (KHÔNG để golevelup tự tạo queue).
+- **Per-subscription queue**: `<subscriber>.<event>.q` (quorum) + retry-tier queues (durable, TTL tăng dần) + `<subscriber>.<event>.dlq` (quorum).
+- **Contract Zod** tại `src/core/messaging/messaging.contracts.ts`: object `EventContracts` map `routingKey → Zod schema`; `SUBSCRIPTIONS` list. Thêm event mới = thêm 1 entry vào `EventContracts` + 1 entry vào `SUBSCRIPTIONS` + handler.
+- **Publish**: `EventPublisherService.publish(routingKey, payload, opts?)` — validate payload qua contract trước khi gửi. Dùng ở API và worker.
+- **Consume**: `MessageConsumer` bọc handler — validate payload → idempotency check (Redis lock + marker) → gọi handler → Ack. Lỗi có thể retry: tiered-backoff qua `app.retry` → nếu hết lượt → DLQ (Nack no-requeue). Lỗi publish → Nack requeue.
+- **Transactional outbox** (event gắn DB):
+  - Service ghi record + `OutboxRepository.enqueue(event)` trong cùng `TransactionManager.run(...)` (atomic, qua `prisma.db` ALS context).
+  - `OutboxRelay` (worker) poll outbox → `EventPublisherService.publish` → mark sent.
+  - Event rời (không cần atomicity với DB) vd `notification.created` → publish trực tiếp.
+- **Health**: `GET /health` trả field `rabbitmq: 'up' | 'down'`.
+- **Env**: `RABBITMQ_EXCHANGE`, `RABBITMQ_PREFETCH`, `RABBITMQ_MAX_RETRIES`, `RABBITMQ_RETRY_DELAYS_MS`, `RABBITMQ_QUORUM_DELIVERY_LIMIT`, `RABBITMQ_IDEMPOTENCY_TTL`, `RABBITMQ_OUTBOX_POLL_MS`, `RABBITMQ_OUTBOX_BATCH_SIZE` (đã bỏ `RABBITMQ_QUEUE`).
+
 ### Worker process — BullMQ chạy process/cổng độc lập
 - **Hai process, một codebase, hai entrypoint**: API (`src/main.ts`, `:PORT`) thuần **producer** (chỉ enqueue); Worker (`src/main.worker.ts`, `:WORKER_PORT` mặc định 3001) chạy `@Processor` + Bull Board. Mục tiêu: job nặng KHÔNG chiếm event loop của API.
-- **WorkerModule** (`src/worker.module.ts`): chỉ nạp hạ tầng worker CẦN — `CoreConfigModule`, `LoggerModule`, `RedisModule`, `QueueModule`, `BullBoardModule.forRoot({ route: '/admin/queues', adapter: FastifyAdapter })` + các `<feature>-worker.module.ts`. Reuse `HealthController` (`:WORKER_PORT/health`). **KHÔNG** import `PrismaModule`/`MessagingModule` (worker không mở DB/RMQ) và KHÔNG đăng ký global `APP_*`.
+- **WorkerModule** (`src/worker.module.ts`): nạp — `CoreConfigModule`, `LoggerModule`, `RedisModule`, `PrismaModule`, `QueueModule`, `MessagingModule.forRoot({ consumer: true })`, `OutboxModule.withRelay()`, `BullBoardModule.forRoot({ route: '/admin/queues', adapter: FastifyAdapter })` + các `<feature>-worker.module.ts` (BullMQ processor) + `NotificationsConsumerModule`, `UsersConsumerModule`, `UnroutedConsumer`. Reuse `HealthController` (`:WORKER_PORT/health`). KHÔNG đăng ký global `APP_*`. Worker NAY mở cả DB (Prisma) và RMQ connection.
 - **Feature có background job → tách producer/consumer**:
   - `<feature>.module.ts` (phía API): giữ `registerQueue` + producer, **BỎ** processor.
   - `<feature>-worker.module.ts` (phía worker): `registerQueue` + `BullBoardModule.forFeature({ name, adapter: BullMQAdapter })` + `Processor`. Feature nào cần DB thì module worker NÀY tự import `PrismaModule`.

@@ -31,7 +31,22 @@ export const envSchema = z
     CACHE_DEFAULT_TTL: z.coerce.number().int().positive().default(60), // giây
 
     RABBITMQ_URL: z.url(),
-    RABBITMQ_QUEUE: z.string().default('notifications_queue'),
+    RABBITMQ_EXCHANGE: z.string().default('app'),
+    RABBITMQ_PREFETCH: z.coerce.number().int().positive().default(10),
+    RABBITMQ_MAX_RETRIES: z.coerce.number().int().min(0).default(3),
+    // CSV milliseconds, mỗi phần tử = 1 retry tier (5s, 30s, 5m).
+    RABBITMQ_RETRY_DELAYS_MS: z
+      .string()
+      .default('5000,30000,300000')
+      .transform((s) => s.split(',').map((n) => Number(n.trim())))
+      .refine((arr) => arr.length > 0 && arr.every((n) => Number.isInteger(n) && n > 0), {
+        message: 'RABBITMQ_RETRY_DELAYS_MS phải là danh sách số ms dương, cách nhau bằng dấu phẩy',
+      }),
+    RABBITMQ_QUORUM_DELIVERY_LIMIT: z.coerce.number().int().positive().default(5),
+    RABBITMQ_IDEMPOTENCY_TTL: z.coerce.number().int().positive().default(86400), // giây
+    RABBITMQ_OUTBOX_POLL_MS: z.coerce.number().int().positive().default(1000),
+    RABBITMQ_OUTBOX_BATCH: z.coerce.number().int().positive().default(50),
+    RABBITMQ_OUTBOX_MAX_ATTEMPTS: z.coerce.number().int().positive().default(10),
 
     JWT_SECRET: z.string().min(8),
     // Seconds until the access token expires (jsonwebtoken accepts a number of seconds).
@@ -58,6 +73,16 @@ export const envSchema = z
         code: 'custom',
         path: ['BULLBOARD_PASSWORD'],
         message: 'BULLBOARD_PASSWORD là bắt buộc ở production.',
+      });
+    }
+    // Mỗi attempt cần 1 retry-tier queue (đã khai báo theo độ dài RETRY_DELAYS_MS). Nếu
+    // MAX_RETRIES > số tier, consumer sẽ publish vào routing key chưa có queue → message lọt
+    // alternate-exchange (unrouted), mất luồng retry/DLQ. Fail-fast lúc boot.
+    if (env.RABBITMQ_RETRY_DELAYS_MS.length < env.RABBITMQ_MAX_RETRIES) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['RABBITMQ_RETRY_DELAYS_MS'],
+        message: `RABBITMQ_RETRY_DELAYS_MS phải có ít nhất RABBITMQ_MAX_RETRIES (${env.RABBITMQ_MAX_RETRIES}) phần tử.`,
       });
     }
   });

@@ -12,8 +12,9 @@ export interface SendMailJob {
 export class MailProducer {
   constructor(@InjectQueue('mail') private readonly queue: Queue) {}
 
-  async enqueue(data: SendMailJob): Promise<string> {
+  async enqueue(data: SendMailJob, jobId?: string): Promise<string> {
     const job = await this.queue.add('send', data, {
+      jobId, // = messageId → BullMQ bỏ trùng nếu enqueue lại cùng id
       attempts: 3,
       backoff: { type: 'exponential', delay: 1000 },
       removeOnComplete: true,

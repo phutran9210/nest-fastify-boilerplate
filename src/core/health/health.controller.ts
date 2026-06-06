@@ -1,4 +1,5 @@
 import { Public } from '@common/decorators/public.decorator';
+import { MessagingHealth } from '@core/messaging/messaging.health';
 import { Temporal } from '@js-temporal/polyfill';
 import { Controller, Get, HttpCode, HttpStatus, Inject } from '@nestjs/common';
 import type { Redis } from 'ioredis';
@@ -8,7 +9,10 @@ import { ApiHealthCheck, ApiHealthController } from './decorators/health-api.dec
 @ApiHealthController()
 @Controller('health')
 export class HealthController {
-  constructor(@Inject(REDIS_CLIENT) private readonly redis: Redis) {}
+  constructor(
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly messaging: MessagingHealth,
+  ) {}
 
   @Public()
   @Get()
@@ -19,6 +23,7 @@ export class HealthController {
       status: 'ok',
       timestamp: Temporal.Now.instant().toString(),
       redis: await this.pingRedis(),
+      rabbitmq: this.messaging.status(),
     };
   }
 

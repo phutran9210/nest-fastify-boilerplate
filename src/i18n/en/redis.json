@@ -1,0 +1,3 @@
+{
+  "LOCK_ACQUISITION_FAILED": "Could not acquire lock, resource is busy"
+}

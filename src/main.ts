@@ -58,6 +58,7 @@ async function bootstrap(): Promise<void> {
   );
   SwaggerModule.setup('docs', app, cleanupOpenApiDoc(openApiDoc));
 
+  app.enableShutdownHooks();
   await app.startAllMicroservices();
   const port = config.getOrThrow<number>('PORT');
   await app.listen(port, '0.0.0.0');

@@ -11,6 +11,7 @@ import { LoggerModule } from './core/logger/logger.module';
 import { MessagingModule } from './core/messaging/messaging.module';
 import { PrismaModule } from './core/prisma/prisma.module';
 import { QueueModule } from './core/queue/queue.module';
+import { RedisModule } from './core/redis/redis.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { MailModule } from './modules/mail/mail.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
@@ -23,6 +24,7 @@ import { UsersModule } from './modules/users/users.module';
     CoreI18nModule,
     PrismaModule,
     QueueModule,
+    RedisModule,
     MessagingModule,
     UsersModule,
     AuthModule,

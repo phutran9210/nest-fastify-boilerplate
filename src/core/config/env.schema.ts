@@ -24,6 +24,10 @@ export const envSchema = z.object({
 
   REDIS_HOST: z.string().default('localhost'),
   REDIS_PORT: z.coerce.number().int().positive().default(6379),
+  REDIS_PASSWORD: z.string().optional(),
+  REDIS_DB: z.coerce.number().int().min(0).default(0),
+  REDIS_KEY_PREFIX: z.string().default('app:'),
+  CACHE_DEFAULT_TTL: z.coerce.number().int().positive().default(60), // giây
 
   RABBITMQ_URL: z.url(),
   RABBITMQ_QUEUE: z.string().default('notifications_queue'),

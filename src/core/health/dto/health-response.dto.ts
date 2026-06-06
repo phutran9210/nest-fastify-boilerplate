@@ -5,6 +5,7 @@ import { z } from 'zod';
 export const healthResponseSchema = z.object({
   status: z.string(),
   timestamp: z.string(),
+  redis: z.enum(['up', 'down']),
 });
 
 export class HealthResponseDto extends (createZodDto(healthResponseSchema) as ReturnType<

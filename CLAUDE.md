@@ -97,6 +97,7 @@ src/
 │   ├── prisma/      # PrismaService (@Global)
 │   ├── queue/       # BullMQ root
 │   ├── messaging/   # RabbitMQ client
+│   ├── redis/        # RedisModule @Global: Cache/Lock/RateLimit/PubSub (ioredis + port pattern)
 │   └── health/      # GET /health
 └── modules/         # business features
     ├── users/
@@ -132,6 +133,13 @@ src/
 - Service import kieu model TU PORT, khong import tu `generated/prisma` truc tiep.
 
 Xem `src/modules/users/` la module tham chieu chinh xac nhat.
+
+### Redis — inject PORT, không inject REDIS_CLIENT trực tiếp trong module nghiệp vụ
+- Module nghiệp vụ chỉ inject port: `CacheService`, `LockService`, `RateLimitService`, `PubSubService`.
+- KHÔNG inject `REDIS_CLIENT` / `REDIS_SUBSCRIBER` symbol trực tiếp bên ngoài `src/core/redis/` (ngoại trừ `HealthController`).
+- Lock và RateLimit chạy atomic qua Lua script — không dùng get+set thường.
+- PubSub (ioredis) không thay thế RabbitMQ cho việc cần durable/fanout cross-service.
+- `buildRedisBaseOptions` được dùng chung cho BullMQ (KHÔNG thêm `keyPrefix` vào BullMQ — nó có cơ chế prefix riêng).
 
 ### Tests — tach rieng trong `test/`, KHONG colocated
 - Test KHONG nam canh source nua. Cay `test/` phan chieu cau truc `src/`:

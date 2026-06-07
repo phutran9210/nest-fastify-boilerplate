@@ -64,8 +64,8 @@ jobs:
       MAIL_WORKER_CONCURRENCY: 5
       BULLBOARD_USER: admin
       BULLBOARD_PASSWORD: admin
-      LOG_FILE_ENABLED: false
-      LOG_ERROR_FILE_ENABLED: false
+      LOG_FILE_ENABLED: "false"
+      LOG_ERROR_FILE_ENABLED: "false"
       JWT_SECRET: ${{ secrets.JWT_SECRET }}
 
     steps:

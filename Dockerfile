@@ -36,6 +36,9 @@ COPY --from=build /app/dist ./dist
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./package.json
 
+# Tạo thư mục logs với quyền cho node user (LOG_FILE_ENABLED có thể bật)
+RUN mkdir -p logs && chown -R node:node /app
+
 EXPOSE 3000
 
 USER node
@@ -50,6 +53,9 @@ WORKDIR /app
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./package.json
+
+# Tạo thư mục logs với quyền cho node user (LOG_FILE_ENABLED có thể bật)
+RUN mkdir -p logs && chown -R node:node /app
 
 EXPOSE 3001
 

@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  push:
+    branches: [develop]
+
+jobs:
+  ci:
+    name: Lint · Typecheck · Test · Build · E2E
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: app
+          POSTGRES_DB: app
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      rabbitmq:
+        image: rabbitmq:4-management-alpine
+        ports:
+          - 5672:5672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s
+          --health-timeout 10s
+          --health-retries 5
+
+    env:
+      NODE_ENV: test
+      PORT: 3000
+      DATABASE_URL: postgresql://app:app@localhost:5432/app?schema=public
+      REDIS_HOST: localhost
+      REDIS_PORT: 6379
+      RABBITMQ_URL: amqp://guest:guest@localhost:5672
+      RABBITMQ_EXCHANGE: app
+      RABBITMQ_PREFETCH: 10
+      RABBITMQ_MAX_RETRIES: 3
+      RABBITMQ_RETRY_DELAYS_MS: "5000,30000,300000"
+      RABBITMQ_QUORUM_DELIVERY_LIMIT: 5
+      RABBITMQ_IDEMPOTENCY_TTL: 86400
+      RABBITMQ_OUTBOX_POLL_MS: 1000
+      RABBITMQ_OUTBOX_BATCH: 50
+      RABBITMQ_OUTBOX_MAX_ATTEMPTS: 10
+      WORKER_PORT: 3001
+      MAIL_WORKER_CONCURRENCY: 5
+      BULLBOARD_USER: admin
+      BULLBOARD_PASSWORD: admin
+      LOG_FILE_ENABLED: false
+      LOG_ERROR_FILE_ENABLED: false
+      JWT_SECRET: ${{ secrets.JWT_SECRET }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Migrate database
+        run: pnpm prisma:deploy
+
+      - name: E2E tests
+        run: pnpm test:e2e

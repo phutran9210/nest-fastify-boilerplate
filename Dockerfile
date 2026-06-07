@@ -38,6 +38,8 @@ COPY --from=build /app/package.json ./package.json
 
 EXPOSE 3000
 
+USER node
+
 CMD ["node", "dist/src/main.js"]
 
 # ─── Stage 4: worker ────────────────────────────────────────────────────────
@@ -50,5 +52,7 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./package.json
 
 EXPOSE 3001
+
+USER node
 
 CMD ["node", "dist/src/main.worker.js"]

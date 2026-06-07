@@ -9,14 +9,23 @@ services:
     ports:
       - '5433:5432'
     volumes:
-      # PG18+ khuyến nghị mount tại /var/lib/postgresql (data nằm trong thư mục con theo major version)
       - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d app"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   redis:
     image: redis:8-alpine
     restart: unless-stopped
     ports:
       - '6380:6379'
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   rabbitmq:
     image: rabbitmq:4-management-alpine
@@ -24,6 +33,57 @@ services:
     ports:
       - '5673:5672'
       - '15673:15672'
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      target: api
+    ports:
+      - '3000:3000'
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://app:app@postgres:5432/app?schema=public
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      BULLBOARD_PASSWORD: change-me
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      target: worker
+    ports:
+      - '3001:3001'
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://app:app@postgres:5432/app?schema=public
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      BULLBOARD_PASSWORD: change-me
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
 
 volumes:
   pgdata:

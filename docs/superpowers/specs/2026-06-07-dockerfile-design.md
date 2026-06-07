@@ -1,7 +1,7 @@
 # Dockerfile — Design Spec
 
 **Date:** 2026-06-07  
-**Status:** Approved
+**Status:** Approved (revised sau review)
 
 ---
 
@@ -22,7 +22,11 @@ FROM node:24-alpine AS deps
 ```
 
 - Cài pnpm qua `corepack enable && corepack prepare pnpm@latest --activate`
-- `COPY package.json pnpm-lock.yaml ./`
+- Copy các file cần thiết cho pnpm install trước khi copy toàn bộ source:
+  ```
+  COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+  ```
+  > **Lý do:** `pnpm-workspace.yaml` chứa `allowBuilds` policy — thiếu file này, `pnpm install` fail với `ERR_PNPM_IGNORED_BUILDS`. `.npmrc` có `approve-builds=true` cũng cần có mặt.
 - `pnpm install --frozen-lockfile` — cài **toàn bộ** deps (bao gồm devDeps cho build)
 
 ### Stage 2: `build`
@@ -45,9 +49,10 @@ FROM node:24-alpine AS api
 ```
 
 - Copy từ `build`: `dist/`, `node_modules/`, `package.json`
-- Copy từ source: `prisma/` (schema cần cho `prisma migrate deploy` lúc runtime nếu cần)
 - `EXPOSE 3000`
 - `CMD ["node", "dist/src/main.js"]`
+
+> **Không copy `prisma/`:** `prisma` CLI là devDep — bị xóa sau `pnpm prune --prod`. Migration **không chạy trong container app**; chạy riêng trước khi deploy (xem mục Migration bên dưới).
 
 ### Stage 4: `worker`
 
@@ -58,6 +63,24 @@ FROM node:24-alpine AS worker
 - Giống `api`, chỉ khác CMD
 - `EXPOSE 3001`
 - `CMD ["node", "dist/src/main.worker.js"]`
+
+---
+
+## Migration strategy
+
+Migration **không chạy trong container `api` hay `worker`** vì `prisma` CLI (devDep) và `prisma.config.ts` không có trong runtime image sau `pnpm prune --prod`.
+
+Cách chạy migration trước khi deploy:
+```bash
+# Chạy một lần trước khi start containers
+docker run --rm \
+  -e DATABASE_URL=... \
+  --network <compose_network> \
+  <api-image> \
+  sh -c "npx prisma migrate deploy"
+```
+
+Hoặc dùng `docker compose run --rm api npx prisma migrate deploy` nếu `prisma` CLI có trong prod deps. Trong scope hiện tại: **migration chạy thủ công ngoài Docker**, không tích hợp vào image.
 
 ---
 
@@ -124,6 +147,13 @@ api:
   ports:
     - "3000:3000"
   env_file: .env
+  environment:
+    NODE_ENV: production
+    DATABASE_URL: postgresql://app:app@postgres:5432/app?schema=public
+    REDIS_HOST: redis
+    REDIS_PORT: 6379
+    RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+    BULLBOARD_PASSWORD: change-me
   restart: unless-stopped
   depends_on:
     postgres:
@@ -144,6 +174,13 @@ worker:
   ports:
     - "3001:3001"
   env_file: .env
+  environment:
+    NODE_ENV: production
+    DATABASE_URL: postgresql://app:app@postgres:5432/app?schema=public
+    REDIS_HOST: redis
+    REDIS_PORT: 6379
+    RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+    BULLBOARD_PASSWORD: change-me
   restart: unless-stopped
   depends_on:
     postgres:
@@ -152,24 +189,25 @@ worker:
       condition: service_healthy
     rabbitmq:
       condition: service_healthy
-    api:
-      condition: service_started
 ```
+
+> **`NODE_ENV: production`** bắt buộc — `env.schema.ts` enforce `BULLBOARD_PASSWORD` required ở production; thiếu thì worker không boot.
+> **`BULLBOARD_PASSWORD: change-me`** — placeholder, thay bằng giá trị thực trước khi deploy. `worker` không depends_on `api` vì không có runtime dependency thực sự.
 
 ---
 
 ## Env trong Docker context
 
-Khi chạy trong Docker, các service infra ở cùng Docker network — host không phải `localhost` mà là tên service. File `.env` dùng cho local dev (port lệch, host localhost). Khi `docker compose up`, cần override:
+`environment:` block override `.env` file — các biến thay đổi giữa local dev và Docker:
 
 | Biến | Local dev | Docker compose |
 |---|---|---|
+| `NODE_ENV` | `development` | `production` |
 | `DATABASE_URL` | `postgresql://app:app@localhost:5433/app` | `postgresql://app:app@postgres:5432/app` |
 | `REDIS_HOST` | `localhost` | `redis` |
 | `REDIS_PORT` | `6380` | `6379` |
 | `RABBITMQ_URL` | `amqp://guest:guest@localhost:5673` | `amqp://guest:guest@rabbitmq:5672` |
-
-Giải pháp: dùng `environment:` block trong `docker-compose.yml` để override các biến này (thay vì sửa `.env`).
+| `BULLBOARD_PASSWORD` | *(dev fallback `admin`)* | bắt buộc set |
 
 ---
 
@@ -185,7 +223,9 @@ docker-compose.yml  (modified)
 
 ## Quyết định thiết kế
 
+- **`pnpm-workspace.yaml` + `.npmrc` copy trước install** — `pnpm-workspace.yaml` chứa `allowBuilds` policy; thiếu → `ERR_PNPM_IGNORED_BUILDS`. `.npmrc` có `approve-builds=true`.
 - **`pnpm prune --prod` trong build stage** — giữ image runtime nhỏ; chỉ prod deps được copy sang `api`/`worker`.
-- **`prisma/` schema copy vào runtime** — cần thiết nếu app chạy `prisma migrate deploy` lúc startup; nếu không cần có thể bỏ.
-- **`env_file: .env` + `environment:` override** — không tạo file `.env.docker` riêng, tránh duplicate; chỉ override đúng các biến khác nhau giữa local và Docker context.
-- **`api: condition: service_started`** trên worker — worker phụ thuộc API về mặt logic (outbox relay publish qua cùng RMQ topology), nhưng không cần API healthy mới start được.
+- **Không copy `prisma/` vào runtime** — `prisma` CLI là devDep, bị xóa sau prune; migration chạy ngoài Docker.
+- **`env_file: .env` + `environment:` override** — không tạo file `.env.docker` riêng; chỉ override đúng các biến khác nhau.
+- **`NODE_ENV: production` explicit** — bắt buộc để trigger production validation (BULLBOARD_PASSWORD required).
+- **Worker không depends_on api** — không có runtime dependency thực sự; worker tự assert RMQ topology độc lập.

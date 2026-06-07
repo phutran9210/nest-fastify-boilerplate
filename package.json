@@ -27,10 +27,13 @@
     "logs:errfile": "cat logs/error.*.log | pino-pretty",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:deploy": "prisma migrate deploy"
+    "prisma:deploy": "prisma migrate deploy",
+    "prepare": "husky"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.16",
+    "@commitlint/cli": "^21.0.2",
+    "@commitlint/config-conventional": "^21.0.2",
     "@nestjs/cli": "^11.0.21",
     "@nestjs/schematics": "^11.1.0",
     "@nestjs/testing": "^11.1.24",
@@ -41,12 +44,25 @@
     "@types/jest": "^30.0.0",
     "@types/node": "^25.9.1",
     "@types/passport-jwt": "^4.0.1",
+    "husky": "^9.1.7",
     "jest": "^30.4.2",
+    "lint-staged": "^17.0.7",
     "pino-pretty": "^13.1.3",
     "prisma": "^7.8.0",
     "source-map-support": "^0.5.21",
     "ts-node": "^10.9.2",
     "typescript": "^6.0.3"
+  },
+  "lint-staged": {
+    "src/**/*.{ts,tsx}": [
+      "biome check --write"
+    ],
+    "test/**/*.{ts,tsx}": [
+      "biome check --write"
+    ],
+    "*.{json,md}": [
+      "biome format --write"
+    ]
   },
   "private": true,
   "dependencies": {

@@ -87,6 +87,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Generate Prisma client
+        run: pnpm prisma:generate
+
+      - name: Generate i18n types
+        run: pnpm i18n:gen
+
       - name: Lint
         run: pnpm lint
 

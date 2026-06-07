@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Tạo file `.github/workflows/ci.yml` — pipeline CI chạy tự động khi push vào nhánh `develop`, thực hiện tuần tự: lint → typecheck → unit test → build → migrate → e2e test với PostgreSQL/Redis/RabbitMQ.
+**Goal:** Tạo file `.github/workflows/ci.yml` — pipeline CI chạy tự động khi push vào nhánh `develop`, thực hiện tuần tự: generate code → lint → typecheck → unit test → build → migrate → e2e test với PostgreSQL/Redis/RabbitMQ.
 
 **Architecture:** Single job trên `ubuntu-latest`, Node 24, pnpm. Services (Postgres 18, Redis 8, RabbitMQ 4) spin up cùng job và health-check trước khi chạy steps. Secrets nhạy cảm (JWT_SECRET) lấy từ GitHub Secrets; các biến còn lại hardcode trong workflow.
 
@@ -15,13 +15,17 @@
 **Files:**
 - Create: `.github/workflows/ci.yml`
 
-- [ ] **Step 1: Tạo thư mục**
+- [x] **Step 1: Tạo thư mục**
 
 ```bash
 mkdir -p .github/workflows
 ```
 
-- [ ] **Step 2: Tạo file `.github/workflows/ci.yml`**
+- [x] **Step 2: Tạo file `.github/workflows/ci.yml`**
+
+> ⚠️ **Hai gotcha thực tế từ verify:**
+> 1. `pnpm/action-setup@v4` cần `version: latest` — không có `packageManager` field trong `package.json` → action fail nếu thiếu.
+> 2. `src/generated/` bị gitignore → phải chạy `prisma:generate` + `i18n:gen` trước lint/typecheck.
 
 ```yaml
 name: CI
@@ -90,8 +94,8 @@ jobs:
       MAIL_WORKER_CONCURRENCY: 5
       BULLBOARD_USER: admin
       BULLBOARD_PASSWORD: admin
-      LOG_FILE_ENABLED: false
-      LOG_ERROR_FILE_ENABLED: false
+      LOG_FILE_ENABLED: "false"
+      LOG_ERROR_FILE_ENABLED: "false"
       JWT_SECRET: ${{ secrets.JWT_SECRET }}
 
     steps:
@@ -101,6 +105,7 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
+          version: latest
           run_install: false
 
       - name: Setup Node.js 24
@@ -111,6 +116,12 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm prisma:generate
+
+      - name: Generate i18n types
+        run: pnpm i18n:gen
 
       - name: Lint
         run: pnpm lint
@@ -131,7 +142,7 @@ jobs:
         run: pnpm test:e2e
 ```
 
-- [ ] **Step 3: Kiểm tra syntax YAML hợp lệ (local)**
+- [x] **Step 3: Kiểm tra syntax YAML hợp lệ (local)**
 
 ```bash
 python3 -c "import yaml; yaml.safe_load(open('.github/workflows/ci.yml'))" && echo "YAML OK"
@@ -139,7 +150,7 @@ python3 -c "import yaml; yaml.safe_load(open('.github/workflows/ci.yml'))" && ec
 
 Expected: `YAML OK`
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add .github/workflows/ci.yml
@@ -175,7 +186,7 @@ JWT_SECRET    ...
 
 ### Task 3: Verify pipeline chạy đúng
 
-- [ ] **Step 1: Push lên nhánh develop**
+- [x] **Step 1: Push lên nhánh develop**
 
 ```bash
 git push origin feat/nestjs-fastify-boilerplate:develop
@@ -187,7 +198,7 @@ Hoặc nếu đã ở nhánh develop:
 git push origin develop
 ```
 
-- [ ] **Step 2: Mở GitHub Actions và theo dõi run**
+- [x] **Step 2: Mở GitHub Actions và theo dõi run**
 
 ```bash
 gh run list --branch develop --limit 5
@@ -195,7 +206,7 @@ gh run list --branch develop --limit 5
 
 Expected: Thấy run mới nhất với status `queued` hoặc `in_progress`.
 
-- [ ] **Step 3: Xem log real-time**
+- [x] **Step 3: Xem log real-time**
 
 ```bash
 gh run watch
@@ -203,7 +214,7 @@ gh run watch
 
 Chọn run mới nhất. Theo dõi từng step. Expected: tất cả steps pass với dấu ✓.
 
-- [ ] **Step 4: Nếu có step fail — xem log chi tiết**
+- [x] **Step 4: Nếu có step fail — xem log chi tiết**
 
 ```bash
 gh run view --log-failed

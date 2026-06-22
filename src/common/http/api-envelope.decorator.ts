@@ -19,27 +19,29 @@ type EnvelopeOptions = {
   paginated?: boolean;
 };
 
-const metaProperties = (paginated: boolean) => {
-  const properties: Record<string, any> = {
+const metaProperties = (paginated: boolean) => ({
+  type: 'object',
+  properties: {
     timestamp: { type: 'string' },
     path: { type: 'string' },
     requestId: { type: 'string' },
-  };
-  if (paginated) {
-    properties.pagination = {
-      type: 'object',
-      properties: {
-        page: { type: 'number' },
-        limit: { type: 'number' },
-        total: { type: 'number' },
-        totalPages: { type: 'number' },
-        hasNext: { type: 'boolean' },
-        hasPrev: { type: 'boolean' },
-      },
-    };
-  }
-  return { type: 'object', properties };
-};
+    ...(paginated
+      ? {
+          pagination: {
+            type: 'object',
+            properties: {
+              page: { type: 'number' },
+              limit: { type: 'number' },
+              total: { type: 'number' },
+              totalPages: { type: 'number' },
+              hasNext: { type: 'boolean' },
+              hasPrev: { type: 'boolean' },
+            },
+          },
+        }
+      : {}),
+  },
+});
 
 // Document a success response wrapped in the standard envelope, referencing `model` for `data`.
 export function ApiEnvelopeResponse<TModel extends Type<unknown>>(

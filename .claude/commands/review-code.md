@@ -235,8 +235,8 @@ providers: [ProductsService, PrismaProductRepository]
 
 Nhường cho lệnh `/coding-convention` để kiểm tra đầy đủ checklist convention. Ở đây chỉ cần kiểm tra:
 - Biome format/lint (chạy `pnpm check` hoặc `pnpm lint`)
-- Relative imports (không dùng alias `@app/*`)
-- Không dùng `any` trừ khi có comment giải thích
+- Import alias đúng tầng (`@common/*`, `@core/*`, `@modules/*`, `@generated/*` khi vượt module; relative trong cùng module)
+- **KHÔNG dùng `any`** trong code production (`src/`) — kể cả `as any`. Đây là quy tắc cứng, không có ngoại lệ "kèm comment". Khi cần gọi API không có type (vd custom Lua command của ioredis đăng ký qua `defineCommand`), **khai báo interface tường minh** cho nó thay vì cast `any`; khi cần ép kiểu qua một shape khác, đi qua `unknown` (`x as unknown as T`), KHÔNG qua `any`. **FAIL** mỗi lần xuất hiện token `any` trong `src/`. Ngoại lệ: **`any` được chấp nhận trong file test** (`test/**`, `*.spec.ts`) cho test double — KHÔNG flag. Lưu ý: `z.any()` của Zod (vd pattern Date trong response DTO) là API runtime của thư viện, KHÔNG phải `any` của TypeScript → không tính vi phạm.
 
 ---
 

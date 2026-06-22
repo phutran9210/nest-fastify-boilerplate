@@ -39,10 +39,14 @@ pnpm prisma:generate  # Sinh Prisma client
 
 ## Convention cốt lõi
 
-### `any` — DUOC PHEP (noExplicitAny off)
-- Biome tắt `noExplicitAny` — dùng `any` khi cần.
-- Response DTO được phép và thường xuyên dùng `z.any()`.
-- `useImportType` cũng tắt — KHONG bat buoc `import type`.
+### `any` — KHONG dung trong `src/` (TS any bi cam o code production)
+- **KHONG dung `any` trong code production (`src/`)**, ke ca `as any`. Khong co ngoai le "kem comment".
+- **Ngoai le: `any` duoc chap nhan trong file test** (`test/**`, `*.spec.ts`) cho test double. Biome chi lint `src/**` nen test khong bi enforce.
+- API khong co type (vd custom Lua command ioredis qua `defineCommand`) → **khai bao interface tuong minh** (xem `RedisLockClient` trong `src/core/redis/services/lock.service.ts`), KHONG cast `any`.
+- Can ep kieu qua shape khac → di qua `unknown` (`x as unknown as T`), KHONG qua `any`.
+- `z.any()` cua Zod (vd pattern Date trong response DTO) la API runtime cua thu vien — KHONG phai `any` cua TypeScript → van duoc dung.
+- `useImportType` tat — KHONG bat buoc `import type`.
+- Luu y: Biome `noExplicitAny` hien dang off (chua enforce tu dong) — quy tac nay enforce qua review/`/review-code`. Con vai file cu (`rate-limit.service.ts`, `pubsub.service.ts`, `api-envelope.decorator.ts`) chua don `any`; don xong moi nen bat `noExplicitAny` trong `biome.json`.
 
 ### Auth opt-out — `@Public()` de mo endpoint
 - Global `JwtAuthGuard` bao ve MOI route mac dinh.
@@ -148,6 +152,9 @@ Xem `src/modules/users/` la module tham chieu chinh xac nhat.
 - Module nghiệp vụ chỉ inject port: `CacheService`, `LockService`, `RateLimitService`, `PubSubService`.
 - KHÔNG inject `REDIS_CLIENT` / `REDIS_SUBSCRIBER` symbol trực tiếp bên ngoài `src/core/redis/` (ngoại trừ `HealthController`).
 - Lock và RateLimit chạy atomic qua Lua script — không dùng get+set thường.
+- `LockService` hỗ trợ: `acquire`/`withLock` với `opts?` — `retry` (chờ + full-jitter backoff, deadline đơn điệu), `autoRenew` (watchdog self-scheduling, **best-effort liveness KHÔNG phải safety**, yêu cầu `ttlMs ≥ 3000`), `fencing` (**opt-in** — mặc định KHÔNG tạo key `lock:fence:*` để tránh leak; chỉ bật khi thực sự so fencing token ở điểm ghi), `onTimeout: 'throw'|'return'`. `withLock` mặc định throw 409 (overload giữ `Promise<T>`); `onTimeout:'return'` → `Promise<T | undefined>`, KHÔNG chạy fn.
+- Lock key business theo format `<domain>:<id>[:<action>]` (vd `user:42:sync`); caller KHÔNG tự thêm `lock:`. Key cardinality cao → để `fencing` off.
+- Decorator `@WithLock({ key: (...args) => string, ttlMs, retry?, autoRenew?, onTimeout? })` (từ `@core/redis/decorators/with-lock.decorator`) bọc method service nội bộ; dùng "service holder" set ở vòng đời `RedisModule`. Cần loss-awareness (`lock.signal`) thì dùng `withLock(...)` trực tiếp, KHÔNG dùng decorator.
 - PubSub (ioredis) không thay thế RabbitMQ cho việc cần durable/fanout cross-service.
 - `buildRedisBaseOptions` được dùng chung cho BullMQ (KHÔNG thêm `keyPrefix` vào BullMQ — nó có cơ chế prefix riêng).
 

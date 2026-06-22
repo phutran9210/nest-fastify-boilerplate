@@ -1,6 +1,7 @@
 import type { ConfigService } from '@nestjs/config';
 import { Redis, type RedisOptions } from 'ioredis';
 import { acquireLock } from './scripts/acquire-lock.lua';
+import { extendLock } from './scripts/extend-lock.lua';
 import { rateLimit } from './scripts/rate-limit.lua';
 import { releaseLock } from './scripts/release-lock.lua';
 
@@ -30,6 +31,7 @@ export function createRedisClient(config: ConfigService): Redis {
   const client = new Redis(appOptions(config));
   client.defineCommand('acquireLock', acquireLock);
   client.defineCommand('releaseLock', releaseLock);
+  client.defineCommand('extendLock', extendLock);
   client.defineCommand('rateLimit', rateLimit);
   return client;
 }

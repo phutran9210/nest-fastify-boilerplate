@@ -1,6 +1,7 @@
-import { Global, Inject, Module, type OnModuleDestroy } from '@nestjs/common';
+import { Global, Inject, Module, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Redis } from 'ioredis';
+import { clearLockServiceRef, setLockServiceRef } from './decorators/with-lock.decorator';
 import { CacheService } from './ports/cache.service.port';
 import { LockService } from './ports/lock.service.port';
 import { PubSubService } from './ports/pubsub.service.port';
@@ -31,14 +32,20 @@ import { RedisRateLimitService } from './services/rate-limit.service';
     PubSubService,
   ],
 })
-export class RedisModule implements OnModuleDestroy {
+export class RedisModule implements OnModuleInit, OnModuleDestroy {
   constructor(
     @Inject(REDIS_CLIENT) private readonly client: Redis,
     @Inject(REDIS_SUBSCRIBER) private readonly subscriber: Redis,
+    private readonly lockService: LockService,
   ) {}
+
+  onModuleInit(): void {
+    setLockServiceRef(this.lockService);
+  }
 
   // Graceful shutdown: nhả connection (cần app.enableShutdownHooks() ở main.ts).
   async onModuleDestroy(): Promise<void> {
+    clearLockServiceRef(this.lockService); // clear TRƯỚC khi đóng client
     await Promise.allSettled([this.client.quit(), this.subscriber.quit()]);
   }
 }

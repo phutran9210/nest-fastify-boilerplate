@@ -70,11 +70,14 @@ Single-tenant. Cấu trúc module theo **feature-first** với phân tầng rõ 
 
 ### 1. TypeScript & Biome
 
-- ✅ `any` **được phép dùng** — response DTO dùng `z.any()` có chủ đích. Biome đã tắt `noExplicitAny`.
+- ❌ **KHÔNG dùng `any`** trong code production (`src/`) — kể cả `as any`. Không có ngoại lệ "kèm comment". (Ngoại lệ: `any` được chấp nhận trong file test `test/**` cho test double — Biome chỉ lint `src/**`.)
+  - API không có type (vd custom Lua command ioredis qua `defineCommand`) → khai báo interface tường minh (xem `RedisLockClient` trong `src/core/redis/services/lock.service.ts`).
+  - Cần ép kiểu qua shape khác → đi qua `unknown` (`x as unknown as T`), KHÔNG qua `any`.
+  - `z.any()` của Zod (vd pattern Date trong response DTO) là API runtime của thư viện — KHÔNG phải `any` của TypeScript → vẫn được dùng.
 - ✅ `import type` **không bắt buộc** — Biome đã tắt `useImportType`.
 - ✅ Dùng single quotes, trailing comma `all`, semicolon `always`, indent 2 spaces, lineWidth 100.
 - ✅ Format/lint: `pnpm check` (= `biome check --write .`), `pnpm lint` (= `biome check .`).
-- ❌ Đừng bật `noExplicitAny` hay `useImportType` — chúng đã bị tắt có lý do.
+- ⚠️ Biome `noExplicitAny` hiện đang off (chưa enforce tự động) — quy tắc cấm `any` enforce qua review. Vài file cũ (`rate-limit.service.ts`, `pubsub.service.ts`, `api-envelope.decorator.ts`) chưa dọn `any`; dọn xong nên bật `noExplicitAny`.
 
 ### 2. Import & cấu trúc thư mục
 

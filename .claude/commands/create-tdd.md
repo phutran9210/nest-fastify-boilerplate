@@ -1,24 +1,24 @@
-# /create-tdd — Quy trinh TDD Red-Green-Refactor
+# /create-tdd — TDD Red-Green-Refactor Workflow
 
-Dung lenh nay de phat trien tinh nang hoac sua loi theo quy trinh TDD (Test-Driven Development) cho du an NestJS 11 + Prisma 7 + nestjs-zod + Jest + Biome + pnpm.
+Use this command to develop features or fix bugs following the TDD (Test-Driven Development) workflow for the NestJS 11 + Prisma 7 + nestjs-zod + Jest + Biome + pnpm project.
 
-**Dau vao:** $ARGUMENTS — mo ta ngan tinh nang/loi can xu ly, hoac duong dan den file/module lien quan.
+**Input:** $ARGUMENTS — short description of the feature/bug to address, or path to the related file/module.
 
 ---
 
-## Buoc 1 — Red: Viet test that bai truoc
+## Step 1 — Red: Write a failing test first
 
-Viet test TRUOC KHI co bat ky code implementation nao. Tuan theo quy uoc cua lenh `/create-test`:
+Write the test BEFORE any implementation code exists. Follow the conventions from the `/create-test` command:
 
-- File test dat trong `test/unit/` (mirror cau truc `src/`), ten dang `*.spec.ts` — KHONG colocated. Import source bang path alias (`@modules/*`, `@common/*`…)
-- Mock bang plain object `useValue`, KHONG dung `jest.fn()` la gia tri truc tiep
-- Goi `jest.clearAllMocks()` trong `beforeEach`
-- Ten test mo ta hanh vi (behavior-style), vi du: `it('should throw NotFoundException when user not found', ...)`
-- Assertion cu the, kiem tra ket qua thuc su (khong chi kiem tra mock duoc goi)
+- Test files go in `test/unit/` (mirroring the `src/` structure), named `*.spec.ts` — NOT colocated. Import source using path aliases (`@modules/*`, `@common/*`…)
+- Mock with plain object `useValue`, DO NOT use `jest.fn()` as a direct value
+- Call `jest.clearAllMocks()` in `beforeEach`
+- Test names should describe behavior (behavior-style), e.g.: `it('should throw NotFoundException when user not found', ...)`
+- Use specific assertions, verify actual results (not just that mocks were called)
 
-**KHONG DUOC viet bat ky code implementation nao o buoc nay.**
+**DO NOT write any implementation code in this step.**
 
-Vi du cau truc test:
+Example test structure:
 
 ```typescript
 describe('UserService', () => {
@@ -48,109 +48,109 @@ describe('UserService', () => {
 
 ---
 
-## Buoc 2 — Xac nhan test THAT BAI
+## Step 2 — Confirm the test FAILS
 
-Chay test va kiem tra no THAT BAI vi dung ly do:
+Run the test and verify it FAILS for the right reason:
 
 ```bash
-pnpm test <duong-dan-den-file-spec>
-# Hoac chay tat ca:
+pnpm test <path-to-spec-file>
+# Or run all:
 pnpm test
 ```
 
-**Kiem tra:**
-- Test phai that bai (red) — neu test pass ngay lap tuc, co nghia la test chua kiem tra duoc gi, hay quay lai Buoc 1.
-- Test phai that bai vi LY DO DUNG, vi du: `Cannot find module`, `... is not a function`, hoac assertion fail vi chua co implementation.
-- Neu test that bai vi loi import hay loi cu phap (syntax error), HAY SUA TEST TRUOC — dung chuyep sang buoc tiep theo khi test bi loi sai ly do.
+**Verify:**
+- The test must fail (red) — if the test passes immediately, it means the test is not actually checking anything, go back to Step 1.
+- The test must fail for the RIGHT REASON, e.g.: `Cannot find module`, `... is not a function`, or assertion failure because there is no implementation yet.
+- If the test fails due to import errors or syntax errors, FIX THE TEST FIRST — do not move to the next step while the test fails for the wrong reason.
 
 ---
 
-## Buoc 3 — Green: Viet implementation toi thieu
+## Step 3 — Green: Write minimal implementation
 
-Viet vua du code de test pass. Ap dung quy uoc tu lenh `/coding-convention`:
+Write just enough code to make the test pass. Follow the conventions from the `/coding-convention` command:
 
-- Truy cap database qua `PrismaService`, khong goi Prisma truc tiep
-- `NotFoundException` dung template literal: `` throw new NotFoundException(`User ${id} not found`) ``
-- DTO dung `nestjs-zod` (`createZodDto`)
-- Logic ngay/gio dung `Temporal` (khong dung `Date`, `dayjs`, `moment`)
-- Import tuong doi (relative), khong dung alias tuyet doi tru `@prisma/client`
-- Cau truc flat trong module (tranh long sau nhieu cap thu muc)
+- Access the database through `PrismaService`, do not call Prisma directly
+- `NotFoundException` uses template literal: `` throw new NotFoundException(`User ${id} not found`) ``
+- DTOs use `nestjs-zod` (`createZodDto`)
+- Date/time logic uses `Temporal` (not `Date`, `dayjs`, `moment`)
+- Relative imports (relative), do not use absolute aliases except `@prisma/client`
+- Flat structure within modules (avoid deeply nested directories)
 
-**YAGNI:** Chi viet dung nhung gi can thiet de test pass. Khong them tinh nang chua co test.
+**YAGNI:** Only write what is necessary to make the test pass. Do not add features that have no test.
 
-Sau khi viet xong, chay lai:
+After writing, run again:
 
 ```bash
-pnpm test <duong-dan-den-file-spec>
+pnpm test <path-to-spec-file>
 ```
 
-Test phai PASS (green). Neu van that bai, tiep tuc sua implementation (khong sua test) cho den khi pass.
+The test must PASS (green). If it still fails, keep fixing the implementation (not the test) until it passes.
 
 ---
 
-## Buoc 4 — Refactor: Don dep voi test xanh
+## Step 4 — Refactor: Clean up with green tests
 
-Khi test da pass, refactor code de cai thien chat luong ma khong thay doi hanh vi:
+Once the test passes, refactor the code to improve quality without changing behavior:
 
-- Dat ten bien/ham ro rang hon
-- Loai bo code trung lap (DRY)
-- Tach logic phuc tap thanh ham rieng neu can
-- Giu cac test van xanh sau moi thay doi
+- Use clearer variable/function names
+- Remove duplicate code (DRY)
+- Extract complex logic into separate functions if needed
+- Keep all tests green after every change
 
-Sau moi thay doi refactor, chay lai test:
+After each refactoring change, run the test again:
 
 ```bash
-pnpm test <duong-dan-den-file-spec>
+pnpm test <path-to-spec-file>
 ```
 
-**Khong duoc refactor cho den khi test xanh. Khong duoc thay doi hanh vi khi refactor.**
+**Do not refactor until tests are green. Do not change behavior when refactoring.**
 
 ---
 
-## Buoc 5 — Hoan thien: Kiem tra tong the va commit
+## Step 5 — Finalize: Run full checks and commit
 
-### Chay tat ca test:
+### Run all tests:
 
 ```bash
 pnpm test
 ```
 
-Tat ca test phai pass (khong co failure nao).
+All tests must pass (no failures).
 
-### Chay Biome format va lint:
+### Run Biome format and lint:
 
 ```bash
 pnpm check
 ```
 
-Sua het cac loi lint va format truoc khi commit.
+Fix all lint and format errors before committing.
 
 ### Commit:
 
-Commit theo tung chu ky red-green-refactor nho. Moi commit ly tuong tuong ung voi mot hanh vi da duoc test va implement:
+Commit in small red-green-refactor cycles. Ideally each commit corresponds to one behavior that has been tested and implemented:
 
 ```bash
-git add <cac-file-lien-quan>
-git commit -m "feat(<module>): <mo-ta-hanh-vi>"
+git add <related-files>
+git commit -m "feat(<module>): <behavior-description>"
 ```
 
 ---
 
-## Nguyen tac cam ghi nho
+## Key principles to remember
 
-| Nguyen tac | Chi tiet |
+| Principle | Details |
 |---|---|
-| Test truoc, code sau | KHONG BAO GIO viet implementation truoc khi co failing test |
-| Mot hanh vi mot lan | Moi chu ky TDD chi xu ly mot case/hanh vi |
-| Test phai that bai truoc | Test pass ngay = test khong thuc su kiem tra gi |
-| Commit nho | Ly tuong la mot commit cho moi chu ky red-green-refactor |
-| Tham chieu lenh khac | Dung `/create-test` cho quy uoc test, `/coding-convention` cho quy uoc code |
+| Test first, code after | NEVER write implementation before having a failing test |
+| One behavior at a time | Each TDD cycle handles only one case/behavior |
+| Test must fail first | Test passing immediately = test is not actually checking anything |
+| Small commits | Ideally one commit per red-green-refactor cycle |
+| Reference other commands | Use `/create-test` for test conventions, `/coding-convention` for code conventions |
 
 ---
 
-## Tham chieu nhanh
+## Quick reference
 
-- Quy uoc viet test: `/create-test`
-- Quy uoc viet code: `/coding-convention`
-- Chay test: `pnpm test [duong-dan]`
-- Kiem tra lint/format: `pnpm check`
+- Test conventions: `/create-test`
+- Code conventions: `/coding-convention`
+- Run tests: `pnpm test [path]`
+- Check lint/format: `pnpm check`

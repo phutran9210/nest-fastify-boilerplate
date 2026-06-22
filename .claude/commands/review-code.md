@@ -1,17 +1,17 @@
-# /review-code — Đánh giá chất lượng code (NestJS 11 + Fastify + Prisma 7)
+# /review-code — Code quality review (NestJS 11 + Fastify + Prisma 7)
 
-## Tham số
+## Parameters
 
-`$ARGUMENTS` có thể là:
-- Đường dẫn cụ thể (file hoặc thư mục)
-- `all` — toàn bộ source
-- `--changed` — file thay đổi so với nhánh gốc
-- `--dirty` — file chưa commit + untracked
-- `--staged` — file đã `git add`
-- `--fix` — tự động sửa các lỗi an toàn, sau đó chạy `pnpm check`
-- `--summary` — chỉ in phần TÓM TẮT
+`$ARGUMENTS` can be:
+- A specific path (file or directory)
+- `all` — entire source
+- `--changed` — files changed compared to the base branch
+- `--dirty` — uncommitted + untracked files
+- `--staged` — files already `git add`ed
+- `--fix` — automatically fix safe issues, then run `pnpm check`
+- `--summary` — only print the SUMMARY section
 
-## Xác định phạm vi (scope)
+## Determining scope
 
 ```bash
 BASE=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@')
@@ -20,165 +20,165 @@ BASE=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | s
 ```
 
 - `--changed` → `git diff --name-only $BASE...HEAD`
-- `--dirty` → hợp (union) của `git diff --name-only HEAD` và `git ls-files --others --exclude-standard`
+- `--dirty` → union of `git diff --name-only HEAD` and `git ls-files --others --exclude-standard`
 - `--staged` → `git diff --name-only --cached`
-- Luôn loại trừ `src/generated/`. Chỉ xét file `.ts`.
+- Always exclude `src/generated/`. Only consider `.ts` files.
 
 ---
 
-## Tiêu chí đánh giá
+## Evaluation criteria
 
-Với mỗi tiêu chí, ghi kết quả: **PASS** / **WARN** / **FAIL** kèm vị trí cụ thể `file:dòng — vấn đề → cách sửa`.
+For each criterion, record the result: **PASS** / **WARN** / **FAIL** with specific location `file:line — issue → fix`.
 
-Dự án này là **single-tenant**. Không có gì để đánh giá về schema multi-tenant, không có migration kiểu ORM cũ. Bỏ qua hoàn toàn các khái niệm không áp dụng cho stack này.
+This project is **single-tenant**. There is nothing to evaluate regarding multi-tenant schemas, no legacy ORM migrations. Completely skip any concepts that do not apply to this stack.
 
 ---
 
-### 1. Tính đúng đắn (Correctness)
+### 1. Correctness
 
-Kiểm tra:
-- Logic khớp với ý định: không suy luận sai điều kiện, không đảo chiều boolean
-- Xử lý `null` từ `prisma.findUnique` (kiểm tra trước khi dùng)
-- Mảng rỗng không gây lỗi runtime
-- Phân trang không bị off-by-one (`skip = (page - 1) * limit`)
-- `await` đầy đủ cho mọi Promise
+Check:
+- Logic matches intent: no incorrect condition reasoning, no inverted booleans
+- Handle `null` from `prisma.findUnique` (check before use)
+- Empty arrays do not cause runtime errors
+- Pagination has no off-by-one (`skip = (page - 1) * limit`)
+- All Promises have proper `await`
 
-Ví dụ lỗi:
+Example issue:
 ```ts
-// FAIL: thiếu await
+// FAIL: missing await
 const user = prisma.user.findUnique({ where: { id } });
-// → thêm await
+// → add await
 ```
 
 ---
 
-### 2. Bảo mật (Security)
+### 2. Security
 
-Kiểm tra:
-- Auth là **opt-out**: `JwtAuthGuard` global bảo vệ mọi route. Chỉ dùng `@Public()` (từ `src/common/decorators/public.decorator.ts`) cho endpoint thực sự công khai.
-- **WARN/FAIL** nếu `@Public()` được đặt trên endpoint nhạy cảm (thay đổi mật khẩu, admin action, v.v.)
-- Ẩn dữ liệu nhạy cảm (ví dụ `password`) được xử lý **chủ yếu** qua `@ZodSerializerDto(<Feature>ResponseDto)` — response schema của DTO loại bỏ các trường nhạy cảm. Trả về entity Prisma đầy đủ là **chấp nhận được** khi DTO response đã lọc đúng.
-- `select` trong Prisma là biện pháp bảo vệ **khuyến nghị** (defense-in-depth, không bắt buộc) — không mandate `select` nếu `@ZodSerializerDto` đã xử lý.
-- Không hardcode secret: dùng `ConfigService`, không đặt giá trị thật vào source code.
+Check:
+- Auth is **opt-out**: global `JwtAuthGuard` protects all routes. Only use `@Public()` (from `src/common/decorators/public.decorator.ts`) for genuinely public endpoints.
+- **WARN/FAIL** if `@Public()` is placed on sensitive endpoints (password change, admin actions, etc.)
+- Sensitive data hiding (e.g. `password`) is handled **primarily** via `@ZodSerializerDto(<Feature>ResponseDto)` — the DTO response schema strips sensitive fields. Returning the full Prisma entity is **acceptable** when the response DTO already filters correctly.
+- `select` in Prisma is a **recommended** safeguard (defense-in-depth, not mandatory) — do not mandate `select` if `@ZodSerializerDto` already handles it.
+- No hardcoded secrets: use `ConfigService`, do not put real values in source code.
 
-Ví dụ lỗi:
+Example issue:
 ```ts
-// FAIL: @Public() trên endpoint đổi mật khẩu
+// FAIL: @Public() on password change endpoint
 @Public()
 @Patch('change-password')
 ```
 
 ---
 
-### 3. Xử lý lỗi (Error Handling)
+### 3. Error Handling
 
-Kiểm tra:
-- Service ném NestJS exceptions (`NotFoundException`, `BadRequestException`, `ConflictException`, ...)
-- Controller **không** try/catch rồi nuốt lỗi im lặng
-- Lỗi Prisma xử lý qua `Prisma.PrismaClientKnownRequestError` với đúng mã:
-  - `P2002` → unique constraint vi phạm → `ConflictException`
+Check:
+- Services throw NestJS exceptions (`NotFoundException`, `BadRequestException`, `ConflictException`, ...)
+- Controllers do **NOT** try/catch and silently swallow errors
+- Prisma errors handled via `Prisma.PrismaClientKnownRequestError` with correct codes:
+  - `P2002` → unique constraint violation → `ConflictException`
   - `P2025` → record not found → `NotFoundException`
   - `P2003` → foreign key constraint → `BadRequestException`
 
-Ví dụ lỗi:
+Example issue:
 ```ts
-// FAIL: không xử lý PrismaClientKnownRequestError
+// FAIL: not handling PrismaClientKnownRequestError
 catch (e) {
   throw new InternalServerErrorException();
 }
-// → phân loại theo e.code (P2002, P2025, P2003)
+// → classify by e.code (P2002, P2025, P2003)
 ```
 
 ---
 
-### 4. Toàn vẹn dữ liệu (Data Integrity)
+### 4. Data Integrity
 
-Kiểm tra:
-- Chuỗi write nhiều bước phải bọc trong `prisma.$transaction`
-- Ràng buộc unique được đảm bảo ở tầng DB (schema Prisma)
-- Không để trạng thái trung gian nếu một bước thất bại
+Check:
+- Multi-step write sequences must be wrapped in `prisma.$transaction`
+- Unique constraints are enforced at the DB layer (Prisma schema)
+- No intermediate state left if a step fails
 
-Ví dụ lỗi:
+Example issue:
 ```ts
-// FAIL: hai write riêng lẻ không có transaction
+// FAIL: two separate writes without a transaction
 await prisma.order.create({ ... });
 await prisma.inventory.update({ ... });
-// → bọc trong prisma.$transaction([...])
+// → wrap in prisma.$transaction([...])
 ```
 
 ---
 
-### 5. Hiệu năng (Performance)
+### 5. Performance
 
-Kiểm tra:
-- Không N+1: dùng `include` hoặc `select` thay vì lặp query trong vòng lặp
-- Endpoint list có phân trang (`take` + `skip` hoặc cursor)
-- Không fetch toàn bộ bảng lớn vào bộ nhớ
+Check:
+- No N+1: use `include` or `select` instead of looping queries
+- List endpoints have pagination (`take` + `skip` or cursor)
+- No fetching entire large tables into memory
 
-Ví dụ lỗi:
+Example issue:
 ```ts
 // FAIL: N+1
 for (const post of posts) {
   post.author = await prisma.user.findUnique({ where: { id: post.authorId } });
 }
-// → dùng prisma.post.findMany({ include: { author: true } })
+// → use prisma.post.findMany({ include: { author: true } })
 ```
 
 ---
 
-### 6. Chất lượng truy vấn Prisma (Prisma & Query Quality)
+### 6. Prisma & Query Quality
 
-Kiểm tra:
-- Mã lỗi Prisma được xử lý đúng (xem tiêu chí 3)
-- Transaction scope **không** bao gồm lời gọi HTTP bên ngoài hoặc job queue — chỉ bao gồm các thao tác DB
-- `select` là **khuyến nghị** (không bắt buộc / không mandate) — không FAIL vì thiếu `select` nếu DTO đã xử lý
+Check:
+- Prisma error codes are handled correctly (see criterion 3)
+- Transaction scope does **NOT** include external HTTP calls or job queue operations — only DB operations
+- `select` is **recommended** (not mandatory / not mandated) — do NOT FAIL for missing `select` if the DTO already handles it
 
-Ví dụ lỗi:
+Example issue:
 ```ts
-// FAIL: gọi HTTP ngoài nằm trong transaction
+// FAIL: external HTTP call inside transaction
 await prisma.$transaction(async (tx) => {
   await tx.order.create({ ... });
-  await httpService.post('/notify', { ... }); // sai
+  await httpService.post('/notify', { ... }); // wrong
 });
 ```
 
 ---
 
-### 7. Thiết kế API (API Design)
+### 7. API Design
 
-Kiểm tra:
-- REST conventions: `POST /resource` → 201, `GET /resource/:id` → 200, `DELETE` → 200 hoặc 204
-- **Swagger gom tập trung**: mọi metadata Swagger sống trong `<module>/decorators/<feature>-api.decorator.ts` dưới dạng composite `applyDecorators` (class-level `Api<Feature>Controller()` + per-endpoint `Api<Action>()`). Controller KHÔNG được import trực tiếp từ `@nestjs/swagger` — FAIL nếu có
-- Mỗi route có composite decorator tài liệu hoá envelope phản hồi; controller-level có tag + `ApiStandardErrorResponses` (+ `ApiBearerAuth` nếu cần auth)
-- **`@HttpCode(HttpStatus.X)` tường minh trên MỌI route** — FAIL nếu dựa vào status mặc định ngầm của Nest. `status` trong `ApiEnvelopeResponse(..., { status: HttpStatus.X })` phải dùng cùng `HttpStatus.X` với `@HttpCode`; FAIL nếu dùng số magic hoặc lệch giữa runtime và docs
-- Không để controller trả về raw entity khi chưa có DTO response
+Check:
+- REST conventions: `POST /resource` → 201, `GET /resource/:id` → 200, `DELETE` → 200 or 204
+- **Centralized Swagger decorators**: all Swagger metadata lives in `<module>/decorators/<feature>-api.decorator.ts` as composite `applyDecorators` (class-level `Api<Feature>Controller()` + per-endpoint `Api<Action>()`). Controllers MUST NOT import directly from `@nestjs/swagger` — FAIL if they do
+- Each route has a composite decorator documenting the response envelope; controller-level has tag + `ApiStandardErrorResponses` (+ `ApiBearerAuth` if auth required)
+- **Explicit `@HttpCode(HttpStatus.X)` on EVERY route** — FAIL if relying on Nest's implicit default status. `status` in `ApiEnvelopeResponse(..., { status: HttpStatus.X })` must use the same `HttpStatus.X` as `@HttpCode`; FAIL if using magic numbers or if runtime and docs diverge
+- Controllers must not return raw entities without a response DTO
 
-Ví dụ lỗi:
+Example issue:
 ```ts
-// FAIL: Swagger decorator nằm rải rác trong controller, import trực tiếp @nestjs/swagger
+// FAIL: Swagger decorators scattered in controller, directly importing @nestjs/swagger
 import { ApiTags, ApiCreatedResponse } from '@nestjs/swagger';
 @ApiTags('users')
 @Controller('users')
-// → chuyển vào decorators/users-api.decorator.ts: @ApiUsersController() + @ApiCreateUser()
+// → move to decorators/users-api.decorator.ts: @ApiUsersController() + @ApiCreateUser()
 
-// FAIL: thiếu @HttpCode → runtime dựa default ngầm, dễ lệch với status trong docs
+// FAIL: missing @HttpCode → runtime uses implicit default, easily diverges from docs status
 @Post('login')
-@ApiLogin() // docs 200 nhưng POST mặc định trả 201 → lệch
+@ApiLogin() // docs say 200 but POST defaults to 201 → mismatch
 login(@Body() dto: LoginDto) { ... }
-// → thêm @HttpCode(HttpStatus.OK) cho khớp
+// → add @HttpCode(HttpStatus.OK) to match
 ```
 
 ---
 
-### 8. Khả năng đọc (Readability)
+### 8. Readability
 
-Kiểm tra:
-- Tên biến/hàm rõ nghĩa, không viết tắt khó hiểu
-- Hàm nhỏ, đơn trách nhiệm
-- Không có magic number (dùng hằng số có tên)
-- Không có code chết (dead code, import thừa)
+Check:
+- Variable/function names are clear, no cryptic abbreviations
+- Small functions with single responsibility
+- No magic numbers (use named constants)
+- No dead code (dead code, unused imports)
 
-Ví dụ lỗi:
+Example issue:
 ```ts
 // WARN: magic number
 if (users.length > 100) { ... }
@@ -187,93 +187,93 @@ if (users.length > 100) { ... }
 
 ---
 
-### 9. Kiểm thử (Testing)
+### 9. Testing
 
-Kiểm tra:
-- File `*.spec.ts` đặt cùng thư mục với file được test (colocated)
-- Mock dùng plain object `useValue` (không dùng `jest.mock` module-level khi không cần)
-- Có `jest.clearAllMocks()` trong `beforeEach` hoặc `afterEach`
-- Assertion cụ thể (không chỉ `expect(result).toBeDefined()`)
-- Tên test mô tả hành vi, không bắt buộc phải theo dạng `should … when …`
+Check:
+- `*.spec.ts` files placed in the same directory as the file being tested (colocated)
+- Mocks use plain object `useValue` (no `jest.mock` module-level when not needed)
+- Has `jest.clearAllMocks()` in `beforeEach` or `afterEach`
+- Specific assertions (not just `expect(result).toBeDefined()`)
+- Test names describe behavior, not required to follow `should ... when ...` format
 
-Ví dụ lỗi:
+Example issue:
 ```ts
-// WARN: assertion quá chung
+// WARN: overly generic assertion
 expect(result).toBeDefined();
 // → expect(result.id).toBe(mockUser.id);
 ```
 
 ---
 
-### 10. Kiến trúc & phân tầng (Architecture)
+### 10. Architecture & Layering
 
-Kiểm tra việc tuân thủ kiến trúc feature-first và repository port pattern:
+Check adherence to feature-first architecture and repository port pattern:
 
-- **`common/` vs `core/`**: cross-cutting concerns (decorators, filters, guards, interceptors) thuộc `src/common/`; infrastructure (config, prisma, queue, messaging, health) thuộc `src/core/`. FAIL nếu đặt nhầm tầng.
-- **Service không được gọi `this.prisma.*` trực tiếp** và không được import từ `generated/prisma` — FAIL nếu vi phạm.
-- **Chỉ `<feature>.repository.prisma.ts`** được import `PrismaService` và `generated/prisma` — FAIL nếu service hay controller làm vậy.
-- **Naming repository theo vai trò**: PORT = `<feature>.repository.port.ts`, IMPL = `<feature>.repository.prisma.ts` — WARN nếu dùng tên cũ (`<feature>.repository.ts` / `prisma-<feature>.repository.ts`).
-- **Wiring port ↔ impl tồn tại** trong module: `{ provide: <Feature>Repository, useClass: Prisma<Feature>Repository }` — FAIL nếu thiếu, vì NestJS sẽ không resolve được dependency.
-- **Service inject PORT** (abstract class), không inject impl trực tiếp — WARN nếu inject impl.
-- Cấu trúc thư mục đúng: `controllers/`, `services/`, `repositories/`, `dto/` — WARN nếu files nằm phẳng ở root module.
+- **`common/` vs `core/`**: cross-cutting concerns (decorators, filters, guards, interceptors) belong in `src/common/`; infrastructure (config, prisma, queue, messaging, health) belongs in `src/core/`. FAIL if placed in the wrong layer.
+- **Services MUST NOT call `this.prisma.*` directly** and MUST NOT import from `generated/prisma` — FAIL if violated.
+- **Only `<feature>.repository.prisma.ts`** may import `PrismaService` and `generated/prisma` — FAIL if a service or controller does this.
+- **Repository naming by role**: PORT = `<feature>.repository.port.ts`, IMPL = `<feature>.repository.prisma.ts` — WARN if using old names (`<feature>.repository.ts` / `prisma-<feature>.repository.ts`).
+- **Port-to-impl wiring exists** in the module: `{ provide: <Feature>Repository, useClass: Prisma<Feature>Repository }` — FAIL if missing, since NestJS will not be able to resolve the dependency.
+- **Services inject PORT** (abstract class), not the impl directly — WARN if injecting impl.
+- Correct directory structure: `controllers/`, `services/`, `repositories/`, `dto/` — WARN if files are flat at the module root.
 
-Ví dụ lỗi:
+Example issue:
 ```ts
-// FAIL: service import PrismaService trực tiếp
+// FAIL: service importing PrismaService directly
 import { PrismaService } from '../../../core/prisma/prisma.service';
 constructor(private readonly prisma: PrismaService) {}
-// → Tạo repository port + impl; service chỉ inject PORT
+// → Create repository port + impl; service only injects PORT
 
-// FAIL: thiếu wiring trong module
+// FAIL: missing wiring in module
 providers: [ProductsService, PrismaProductRepository]
 // → providers: [ProductsService, { provide: ProductRepository, useClass: PrismaProductRepository }]
 ```
 
 ---
 
-### 11. Quy ước dự án (Conventions)
+### 11. Project Conventions
 
-Nhường cho lệnh `/coding-convention` để kiểm tra đầy đủ checklist convention. Ở đây chỉ cần kiểm tra:
-- Biome format/lint (chạy `pnpm check` hoặc `pnpm lint`)
-- Import alias đúng tầng (`@common/*`, `@core/*`, `@modules/*`, `@generated/*` khi vượt module; relative trong cùng module)
-- **KHÔNG dùng `any`** trong code production (`src/`) — kể cả `as any`. Đây là quy tắc cứng, không có ngoại lệ "kèm comment". Khi cần gọi API không có type (vd custom Lua command của ioredis đăng ký qua `defineCommand`), **khai báo interface tường minh** cho nó thay vì cast `any`; khi cần ép kiểu qua một shape khác, đi qua `unknown` (`x as unknown as T`), KHÔNG qua `any`. **FAIL** mỗi lần xuất hiện token `any` trong `src/`. Ngoại lệ: **`any` được chấp nhận trong file test** (`test/**`, `*.spec.ts`) cho test double — KHÔNG flag. Lưu ý: `z.any()` của Zod (vd pattern Date trong response DTO) là API runtime của thư viện, KHÔNG phải `any` của TypeScript → không tính vi phạm.
-
----
-
-## Định dạng kết quả
-
-Với mỗi tiêu chí:
-
-```
-### [Số]. Tên tiêu chí — PASS | WARN | FAIL
-- src/modules/user/user.service.ts:42 — vấn đề cụ thể → cách sửa
-```
+Defer to the `/coding-convention` command for the full convention checklist. Here only check:
+- Biome format/lint (run `pnpm check` or `pnpm lint`)
+- Import aliases match the correct layer (`@common/*`, `@core/*`, `@modules/*`, `@generated/*` when crossing modules; relative within the same module)
+- **NO `any`** in production code (`src/`) — including `as any`. This is a hard rule with no "with comment" exceptions. When calling an API without types (e.g. custom Lua commands in ioredis registered via `defineCommand`), **declare an explicit interface** for it instead of casting to `any`; when needing to cast through a different shape, go through `unknown` (`x as unknown as T`), NOT through `any`. **FAIL** for every occurrence of the `any` token in `src/`. Exception: **`any` is accepted in test files** (`test/**`, `*.spec.ts`) for test doubles — do NOT flag. Note: Zod's `z.any()` (e.g. the Date pattern in response DTOs) is a library runtime API, NOT TypeScript's `any` — does not count as a violation.
 
 ---
 
-## TÓM TẮT (SUMMARY)
+## Result format
+
+For each criterion:
 
 ```
-CRITICAL: X vấn đề
-HIGH:     X vấn đề
-MEDIUM:   X vấn đề
-LOW:      X vấn đề
+### [Number]. Criterion name — PASS | WARN | FAIL
+- src/modules/user/user.service.ts:42 — specific issue → fix
+```
 
-TOP 3 ưu tiên:
-1. [CRITICAL/HIGH] file:dòng — mô tả ngắn
+---
+
+## SUMMARY
+
+```
+CRITICAL: X issues
+HIGH:     X issues
+MEDIUM:   X issues
+LOW:      X issues
+
+TOP 3 priorities:
+1. [CRITICAL/HIGH] file:line — short description
 2. ...
 3. ...
 ```
 
-Mức độ nghiêm trọng:
-- **CRITICAL** — lỗ hổng bảo mật, mất dữ liệu tiềm ẩn, crash không xử lý
-- **HIGH** — logic sai, lỗi không được bắt đúng, N+1 nghiêm trọng
-- **MEDIUM** — thiếu validation, thiếu Swagger, thiếu test coverage
-- **LOW** — readability, convention nhỏ
+Severity levels:
+- **CRITICAL** — security vulnerability, potential data loss, unhandled crash
+- **HIGH** — incorrect logic, improperly caught errors, severe N+1
+- **MEDIUM** — missing validation, missing Swagger, missing test coverage
+- **LOW** — readability, minor conventions
 
 ---
 
-## Cờ đặc biệt
+## Special flags
 
-- `--fix`: Tự động sửa các vấn đề an toàn (format, import thừa, annotation Swagger thiếu rõ ràng). Sau đó chạy `pnpm check` và báo cáo kết quả.
-- `--summary`: Chỉ in phần TÓM TẮT, bỏ qua phần chi tiết từng tiêu chí.
+- `--fix`: Automatically fix safe issues (format, unused imports, unclear Swagger annotations). Then run `pnpm check` and report the results.
+- `--summary`: Only print the SUMMARY section, skip the per-criterion details.

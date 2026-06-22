@@ -1,16 +1,16 @@
-# Lệnh /create-dto — Tạo DTO cho nestjs-zod
+# Command /create-dto — Create DTO for nestjs-zod
 
-## Cú pháp
+## Syntax
 
 ```
 /create-dto <FeatureName> <kind> [field:type ...]
 ```
 
-- `<FeatureName>`: Tên feature theo PascalCase (ví dụ: `Product`, `User`, `Order`)
-- `<kind>`: Loại DTO — một trong các giá trị: `create` | `update` | `response` | `query`
-- `[field:type ...]`: (Tuỳ chọn) Danh sách trường nếu không có model Prisma
+- `<FeatureName>`: Feature name in PascalCase (e.g.: `Product`, `User`, `Order`)
+- `<kind>`: DTO type — one of: `create` | `update` | `response` | `query`
+- `[field:type ...]`: (Optional) List of fields if there is no Prisma model
 
-Ví dụ:
+Examples:
 ```
 /create-dto Product create
 /create-dto Order response
@@ -20,27 +20,27 @@ Ví dụ:
 
 ---
 
-## Nguồn trường — Thứ tự ưu tiên (PHẢI tuân thủ theo thứ tự này)
+## Field source — Priority order (MUST follow this order)
 
-1. **Prisma schema** — Nếu tồn tại model `<Feature>` (PascalCase) trong `prisma/schema.prisma`, hãy đọc và suy ra các trường từ model đó (tên, kiểu, nullable, `@unique`):
-   - `response`: dùng tất cả các trường **không nhạy cảm** (loại bỏ `password` và bất kỳ trường nào có thể là bí mật như `passwordHash`, `secret`, `token`).
-   - `create`: dùng các trường bắt buộc đầu vào (bỏ `id`, `createdAt`, `updatedAt` và các trường tự động).
-   - `update`: `.partial()` của schema create.
-   - `query`: luôn dùng mẫu phân trang chuẩn (xem template bên dưới).
+1. **Prisma schema** — If a model `<Feature>` (PascalCase) exists in `prisma/schema.prisma`, read and infer fields from that model (name, type, nullable, `@unique`):
+   - `response`: use all **non-sensitive** fields (exclude `password` and any fields that could be secrets such as `passwordHash`, `secret`, `token`).
+   - `create`: use required input fields (exclude `id`, `createdAt`, `updatedAt` and auto-generated fields).
+   - `update`: `.partial()` of the create schema.
+   - `query`: always use the standard pagination template (see template below).
 
-2. **Trường trong `$ARGUMENTS`** — Nếu không có model Prisma nhưng `$ARGUMENTS` cung cấp danh sách trường rõ ràng → dùng đúng những trường đó.
+2. **Fields in `$ARGUMENTS`** — If there is no Prisma model but `$ARGUMENTS` provides an explicit field list → use exactly those fields.
 
-3. **Hỏi người dùng** — Nếu không có model Prisma VÀ không có trường trong `$ARGUMENTS` → **DỪNG LẠI và hỏi người dùng** danh sách trường cùng kiểu dữ liệu trước khi viết bất kỳ file nào. **Không được tự đoán.**
+3. **Ask the user** — If there is no Prisma model AND no fields in `$ARGUMENTS` → **STOP and ask the user** for the field list along with data types before writing any file. **Do NOT guess.**
 
 ---
 
-## Vị trí file đầu ra
+## Output file location
 
 ```
 src/modules/<feature>/dto/<kind>-<feature>.dto.ts
 ```
 
-Ví dụ với `Product`:
+Example with `Product`:
 - `src/modules/product/dto/create-product.dto.ts`
 - `src/modules/product/dto/update-product.dto.ts`
 - `src/modules/product/dto/product-response.dto.ts`
@@ -66,7 +66,7 @@ export class CreateProductDto extends (createZodDto(createProductSchema) as Retu
 
 ---
 
-## Template — Update DTO (partial của create)
+## Template — Update DTO (partial of create)
 
 ```ts
 import { createZodDto } from 'nestjs-zod';
@@ -103,11 +103,11 @@ export class ProductResponseDto extends (createZodDto(productResponseSchema) as 
 >) {}
 ```
 
-> **Lưu ý quan trọng về Date:** Comment trên là **BẮT BUỘC** và phải giữ nguyên. Không được dùng `z.date()` trực tiếp vì `z.toJSONSchema()` của Zod v4 (được nestjs-zod gọi để tạo tài liệu Swagger) không hỗ trợ `z.date()` — app sẽ crash khi khởi động. Luôn dùng `z.any().transform(...)`.
+> **Important note about Date:** The comment above is **MANDATORY** and must be kept as-is. Do NOT use `z.date()` directly because Zod v4's `z.toJSONSchema()` (called by nestjs-zod to generate Swagger docs) does not support `z.date()` — the app will crash on startup. Always use `z.any().transform(...)`.
 
 ---
 
-## Template — Query DTO (phân trang, coerce số từ query string)
+## Template — Query DTO (pagination, coerce numbers from query string)
 
 ```ts
 import { createZodDto } from 'nestjs-zod';
@@ -125,37 +125,37 @@ export class ProductQueryDto extends (createZodDto(productQuerySchema) as Return
 
 ---
 
-## Các idiom Zod 4 cần dùng
+## Zod 4 idioms to use
 
-| Mục đích | Cú pháp đúng (Zod 4) |
+| Purpose | Correct syntax (Zod 4) |
 |---|---|
-| Email | `z.email()` — **top-level**, KHÔNG dùng `z.string().email()` |
-| ISO date-time (đầu vào) | `z.iso.datetime()` |
+| Email | `z.email()` — **top-level**, do NOT use `z.string().email()` |
+| ISO date-time (input) | `z.iso.datetime()` |
 | Update DTO | `.partial()` |
-| Query params (số) | `z.coerce.number()` |
+| Query params (numbers) | `z.coerce.number()` |
 | Enum | `z.enum(['A', 'B'])` |
-| Optional field | `.optional()` hoặc `.nullable()` |
-| Date trong response | `z.any().transform(...)` (xem lưu ý trên) |
+| Optional field | `.optional()` or `.nullable()` |
+| Date in response | `z.any().transform(...)` (see note above) |
 
 ---
 
-## TUYỆT ĐỐI KHÔNG dùng (thuộc về project cũ / cách tiếp cận khác)
+## ABSOLUTELY DO NOT use (belongs to old project / different approach)
 
-Dự án này **chỉ dùng Zod**. Các thành phần sau **không được xuất hiện** trong bất kỳ DTO nào:
+This project **uses Zod only**. The following components **must NOT appear** in any DTO:
 
-- Thư viện `class-validator` (bất kỳ import nào từ package này)
-- Decorator field như `@IsString`, `@IsEmail`, `@MaxLength`, `@IsOptional`, v.v.
-- Decorator Swagger như `@ApiProperty(` hoặc `ApiPropertyOptional`
-- Hằng số `CONSTRAINTS`
-- Bất kỳ decorator validation nào khác ngoài Zod
+- The `class-validator` library (any import from this package)
+- Field decorators like `@IsString`, `@IsEmail`, `@MaxLength`, `@IsOptional`, etc.
+- Swagger decorators like `@ApiProperty(` or `ApiPropertyOptional`
+- `CONSTRAINTS` constants
+- Any validation decorators other than Zod
 
 ---
 
-## Quy trình thực hiện
+## Execution procedure
 
-1. Đọc `$ARGUMENTS` để xác định `<FeatureName>` và `<kind>`.
-2. Xác định nguồn trường theo **thứ tự ưu tiên** ở trên.
-3. Nếu cần hỏi người dùng (trường hợp 3) → hỏi trước, không viết code.
-4. Áp dụng template phù hợp, thay `Product`/`product` bằng tên feature thực tế.
-5. Viết file vào đúng đường dẫn `src/modules/<feature>/dto/`.
-6. Hiển thị nội dung file đã tạo để người dùng review.
+1. Read `$ARGUMENTS` to determine `<FeatureName>` and `<kind>`.
+2. Determine the field source according to the **priority order** above.
+3. If the user needs to be asked (case 3) → ask first, do not write code.
+4. Apply the appropriate template, replacing `Product`/`product` with the actual feature name.
+5. Write the file to the correct path `src/modules/<feature>/dto/`.
+6. Display the generated file content for the user to review.

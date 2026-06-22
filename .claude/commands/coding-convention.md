@@ -1,42 +1,42 @@
-# /coding-convention — Hướng dẫn chuẩn code dự án NestJS + Fastify
+# /coding-convention — Coding conventions for the NestJS + Fastify project
 
-## Mô tả lệnh
+## Command description
 
-Lệnh này có **hai chế độ**:
+This command has **two modes**:
 
-- **Passive** (không có `$ARGUMENTS`): Claude đọc và áp dụng hướng dẫn này như một tài liệu tham chiếu tự động khi viết hoặc review code. Không cần làm gì thêm — chỉ tuân thủ.
-- **Active** (`$ARGUMENTS` được cung cấp): Quét file `.ts` theo phạm vi được chỉ định, liệt kê vi phạm theo định dạng `file:line — vi phạm → cách fix`, và tự động sửa khi có `--fix`.
+- **Passive** (no `$ARGUMENTS`): Claude reads and applies this guide as an automatic reference when writing or reviewing code. No additional action needed — just comply.
+- **Active** (`$ARGUMENTS` provided): Scans `.ts` files within the specified scope, lists violations in the format `file:line — violation → fix`, and auto-fixes when `--fix` is provided.
 
 ---
 
-## Cách dùng (Active mode)
+## Usage (Active mode)
 
 ```
 /coding-convention <scope> [--fix] [--summary]
 ```
 
-### Các giá trị scope được chấp nhận
+### Accepted scope values
 
-| Argument       | Mô tả                                                                 |
+| Argument       | Description                                                           |
 |----------------|-----------------------------------------------------------------------|
-| `<path>`       | Đường dẫn cụ thể (file hoặc thư mục), ví dụ: `src/modules/users`    |
-| `all`          | Toàn bộ dự án (trừ `src/generated`)                                  |
-| `--changed`    | Các file `.ts` thay đổi so với base branch (`git diff $BASE...HEAD`) |
-| `--dirty`      | Uncommitted + untracked (chưa commit, kể cả file mới chưa stage)     |
-| `--staged`     | Các file `.ts` đã được `git add` (staged)                            |
+| `<path>`       | Specific path (file or directory), e.g.: `src/modules/users`         |
+| `all`          | Entire project (excluding `src/generated`)                           |
+| `--changed`    | `.ts` files changed relative to base branch (`git diff $BASE...HEAD`)|
+| `--dirty`      | Uncommitted + untracked (not yet committed, including unstaged new files) |
+| `--staged`     | `.ts` files that have been `git add`ed (staged)                      |
 
 ### Modifier
 
-| Modifier    | Mô tả                                                         |
-|-------------|---------------------------------------------------------------|
-| `--fix`     | Tự động sửa những vi phạm an toàn, sau đó nhắc chạy `pnpm check` |
-| `--summary` | Chỉ trả về phần tóm tắt (không liệt kê từng vi phạm)         |
+| Modifier    | Description                                                    |
+|-------------|----------------------------------------------------------------|
+| `--fix`     | Auto-fix safe violations, then prompt to run `pnpm check`      |
+| `--summary` | Return only the summary (no per-violation listing)              |
 
 ---
 
-## Logic xác định base branch (Active mode)
+## Base branch detection logic (Active mode)
 
-Sử dụng đoạn script sau để tự động detect base branch — **không hardcode `main`**:
+Use the following script to auto-detect the base branch — **do NOT hardcode `main`**:
 
 ```bash
 BASE=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@')
@@ -45,73 +45,73 @@ BASE=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | s
 ```
 
 - `--changed` → `git diff --name-only $BASE...HEAD | grep '\.ts$'`
-- `--dirty` → union của `git diff --name-only HEAD | grep '\.ts$'` và `git ls-files --others --exclude-standard | grep '\.ts$'`
+- `--dirty` → union of `git diff --name-only HEAD | grep '\.ts$'` and `git ls-files --others --exclude-standard | grep '\.ts$'`
 - `--staged` → `git diff --name-only --cached | grep '\.ts$'`
 
-**Luôn loại trừ `src/generated`** khỏi mọi phạm vi quét (đây là code Prisma tự sinh, Biome bỏ qua).
+**Always exclude `src/generated`** from all scan scopes (this is Prisma auto-generated code, ignored by Biome).
 
-Sau khi dùng `--fix`, nhắc nhở: **"Nhớ chạy `pnpm check` để format và lint toàn bộ dự án."**
+After using `--fix`, remind: **"Remember to run `pnpm check` to format and lint the entire project."**
 
 ---
 
-## Stack dự án
+## Project stack
 
 **NestJS 11 + Fastify + Prisma 7 + nestjs-zod + Zod 4 + @js-temporal/polyfill + Biome 2.4.16 + Jest + pnpm**
 
-Single-tenant. Cấu trúc module theo **feature-first** với phân tầng rõ ràng:
+Single-tenant. Module structure follows **feature-first** with clear layering:
 
 - `src/common/` — cross-cutting concerns: `decorators/`, `filters/`, `guards/`, `interceptors/`
 - `src/core/` — infrastructure: `config/`, `prisma/`, `queue/`, `messaging/`, `health/`
-- `src/modules/` — business features, mỗi feature có subfolders riêng
+- `src/modules/` — business features, each feature with its own subfolders
 
 ---
 
-## Quy ước — Danh sách kiểm tra
+## Conventions — Checklist
 
 ### 1. TypeScript & Biome
 
-- ❌ **KHÔNG dùng `any`** trong code production (`src/`) — kể cả `as any`. Không có ngoại lệ "kèm comment". (Ngoại lệ: `any` được chấp nhận trong file test `test/**` cho test double — Biome chỉ lint `src/**`.)
-  - API không có type (vd custom Lua command ioredis qua `defineCommand`) → khai báo interface tường minh (xem `RedisLockClient` trong `src/core/redis/services/lock.service.ts`).
-  - Cần ép kiểu qua shape khác → đi qua `unknown` (`x as unknown as T`), KHÔNG qua `any`.
-  - `z.any()` của Zod (vd pattern Date trong response DTO) là API runtime của thư viện — KHÔNG phải `any` của TypeScript → vẫn được dùng.
-- ✅ `import type` **không bắt buộc** — Biome đã tắt `useImportType`.
-- ✅ Dùng single quotes, trailing comma `all`, semicolon `always`, indent 2 spaces, lineWidth 100.
+- ❌ **DO NOT use `any`** in production code (`src/`) — including `as any`. No "with comment" exceptions. (Exception: `any` is acceptable in test files `test/**` for test doubles — Biome only lints `src/**`.)
+  - APIs without types (e.g. custom Lua command ioredis via `defineCommand`) → declare an explicit interface (see `RedisLockClient` in `src/core/redis/services/lock.service.ts`).
+  - Need to cast through a different shape → go through `unknown` (`x as unknown as T`), NOT through `any`.
+  - Zod's `z.any()` (e.g. the Date pattern in response DTOs) is a library runtime API — NOT TypeScript's `any` → still allowed.
+- ✅ `import type` is **not required** — Biome has `useImportType` turned off.
+- ✅ Use single quotes, trailing comma `all`, semicolon `always`, indent 2 spaces, lineWidth 100.
 - ✅ Format/lint: `pnpm check` (= `biome check --write .`), `pnpm lint` (= `biome check .`).
-- ⚠️ Biome `noExplicitAny` hiện đang off (chưa enforce tự động) — quy tắc cấm `any` enforce qua review. Vài file cũ (`rate-limit.service.ts`, `pubsub.service.ts`, `api-envelope.decorator.ts`) chưa dọn `any`; dọn xong nên bật `noExplicitAny`.
+- ⚠️ Biome `noExplicitAny` is currently off (not auto-enforced) — the no-`any` rule is enforced via review. A few legacy files (`rate-limit.service.ts`, `pubsub.service.ts`, `api-envelope.decorator.ts`) still have `any`; once cleaned up, `noExplicitAny` should be enabled in `biome.json`.
 
-### 2. Import & cấu trúc thư mục
+### 2. Imports & directory structure
 
-- ✅ **Import vượt cấp (khác module/layer) dùng path alias** — `@common/*`, `@core/*`, `@modules/*`, `@generated/*` (khai báo ở `tsconfig.json` `paths`, `.swcrc` `jsc.paths`, `jest.config.js` `moduleNameMapper`)
-- ✅ **Import trong cùng module** vẫn dùng relative ngắn: `./`, `../dto/`, `../services/` — KHÔNG alias hoá
-- ✅ Cấu trúc feature-first: mỗi module nằm trong `src/modules/<feature>/` với các subfolder:
+- ✅ **Cross-module/layer imports use path aliases** — `@common/*`, `@core/*`, `@modules/*`, `@generated/*` (declared in `tsconfig.json` `paths`, `.swcrc` `jsc.paths`, `jest.config.js` `moduleNameMapper`)
+- ✅ **Intra-module imports** still use short relative paths: `./`, `../dto/`, `../services/` — DO NOT use aliases
+- ✅ Feature-first structure: each module lives in `src/modules/<feature>/` with subfolders:
   - `controllers/` — controller file(s)
   - `decorators/` — composite Swagger decorator (`<feature>-api.decorator.ts`)
-  - `services/` — service file(s) và file `*.spec.ts` colocated
+  - `services/` — service file(s) and colocated `*.spec.ts` files
   - `dto/` — Zod DTO files
-  - `repositories/` — port (abstract class) + Prisma impl (khi có DB access)
-  - `strategies/` — Passport strategies (chỉ cho auth)
-  - `jobs/` — BullMQ processors (chỉ cho mail/queue features)
-- ✅ File module nằm thẳng trong `src/modules/<feature>/`: `<feature>.module.ts`
-- ❌ KHÔNG dùng `../../../` cho import vượt module/layer — thay bằng alias
-- ❌ Không tạo file re-export tổng hợp `index.ts` cho module
+  - `repositories/` — port (abstract class) + Prisma impl (when DB access is needed)
+  - `strategies/` — Passport strategies (auth only)
+  - `jobs/` — BullMQ processors (mail/queue features only)
+- ✅ Module file lives directly in `src/modules/<feature>/`: `<feature>.module.ts`
+- ❌ DO NOT use `../../../` for cross-module/layer imports — use aliases instead
+- ❌ Do not create barrel re-export files `index.ts` for modules
 
 ```ts
-// ✅ Đúng — cùng module dùng relative, vượt cấp dùng alias
+// ✅ Correct — intra-module uses relative, cross-module uses alias
 import { UserRepository } from '../repositories/user.repository.port';
 import { PrismaService } from '@core/prisma/prisma.service';
 import { UserResponseDto } from '@modules/users/dto/user-response.dto';
 import { User } from '@generated/prisma/client';
 
-// ❌ Sai — vượt cấp mà vẫn dùng ../../../
+// ❌ Wrong — cross-module but still using ../../../
 import { PrismaService } from '../../../core/prisma/prisma.service';
 ```
 
 ### 3. nestjs-zod & DTO
 
-**Quy tắc bắt buộc:** Dùng pattern dưới đây. **Không được "đơn giản hoá"** — cast kép là bắt buộc để TypeScript suy diễn đúng kiểu generic.
+**Mandatory rule:** Use the pattern below. **Do NOT "simplify"** — the double cast is required for TypeScript to correctly infer the generic type.
 
 ```ts
-// ✅ Đúng — giữ nguyên pattern này
+// ✅ Correct — keep this pattern as-is
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 
@@ -126,66 +126,66 @@ export class CreateUserDto extends (createZodDto(createUserSchema) as ReturnType
 ```
 
 ```ts
-// ❌ Sai — "đơn giản hoá" làm mất type inference
+// ❌ Wrong — "simplifying" loses type inference
 export class CreateUserDto extends createZodDto(createUserSchema) {}
 ```
 
-- ✅ Controllers dùng `@ZodSerializerDto(Dto)` (mảng: `@ZodSerializerDto([Dto])`)
-- ✅ Zod 4: dùng `z.email()` ở top-level (KHÔNG dùng `z.string().email()`)
+- ✅ Controllers use `@ZodSerializerDto(Dto)` (arrays: `@ZodSerializerDto([Dto])`)
+- ✅ Zod 4: use `z.email()` at top-level (DO NOT use `z.string().email()`)
 
 ```ts
-// ✅ Đúng (Zod 4)
+// ✅ Correct (Zod 4)
 email: z.email()
 
-// ❌ Sai (Zod 3 style)
+// ❌ Wrong (Zod 3 style)
 email: z.string().email()
 ```
 
-#### Caveat quan trọng — Date trong response DTO
+#### Important caveat — Date in response DTOs
 
-`z.date()` làm crash `z.toJSONSchema()` mà nestjs-zod gọi khi build Swagger. **Bắt buộc** dùng pattern sau, và **giữ nguyên comment giải thích**:
+`z.date()` crashes `z.toJSONSchema()` which nestjs-zod calls when building Swagger. **Mandatory** to use the following pattern, and **keep the explanatory comment**:
 
 ```ts
-// ✅ Đúng — response DTO với Date field
+// ✅ Correct — response DTO with Date field
 // Dates use `z.any().transform(...)` (Date -> ISO string) on purpose: `z.date()` is not
 // representable by Zod v4's `z.toJSONSchema()`, which nestjs-zod calls to build the Swagger
 // doc — using `z.date()` here crashes app bootstrap. Do not "simplify".
 createdAt: z.any().transform((v: unknown) => (v instanceof Date ? v.toISOString() : String(v))),
 
-// ❌ Sai — crash khi app khởi động
+// ❌ Wrong — crashes on app bootstrap
 createdAt: z.date(),
 ```
 
 ### 4. Auth
 
-- ✅ `JwtAuthGuard` là global guard (`APP_GUARD`) — mọi endpoint đều được bảo vệ mặc định
-- ✅ Endpoint public: dùng `@Public()` từ `src/common/decorators/public.decorator.ts`
-- ✅ Controller cần auth: yêu cầu bearer cho Swagger qua `ApiBearerAuth()` đặt **bên trong** composite decorator của module (xem mục 5 bên dưới), KHÔNG đặt trực tiếp ở controller
+- ✅ `JwtAuthGuard` is a global guard (`APP_GUARD`) — all endpoints are protected by default
+- ✅ Public endpoints: use `@Public()` from `src/common/decorators/public.decorator.ts`
+- ✅ Controllers requiring auth: require bearer for Swagger via `ApiBearerAuth()` placed **inside** the module's composite decorator (see section 5 below), NOT directly on the controller
 
 ```ts
-// ✅ Endpoint public
+// ✅ Public endpoint
 import { Public } from '@common/decorators/public.decorator';
 
 @Public()
 @Get('health')
 health() { ... }
 
-// ✅ Controller được bảo vệ — bearer nằm trong ApiUsersController()
+// ✅ Protected controller — bearer is in ApiUsersController()
 @ApiUsersController()
 @Controller('users')
 export class UsersController { ... }
 ```
 
-### 5. Swagger — gom tập trung trong `decorators/`
+### 5. Swagger — centralized in `decorators/`
 
-- ✅ Mỗi controller có file `<module>/decorators/<feature>-api.decorator.ts` chứa toàn bộ metadata Swagger dưới dạng composite `applyDecorators`
-- ✅ Class-level: `Api<Feature>Controller()` — gom `ApiTags` + `ApiStandardErrorResponses` (+ `ApiBearerAuth` nếu cần auth)
-- ✅ Per-endpoint: `Api<Action>()` — gom `ApiEnvelopeResponse(...)` và metadata riêng của route
-- ❌ Controller KHÔNG được `import` trực tiếp từ `@nestjs/swagger` — chỉ import các `Api*()` từ `decorators/`
-- ✅ Áp dụng cho **mọi** controller, kể cả route chỉ có `ApiTags` (mail, notifications, health…)
+- ✅ Each controller has a file `<module>/decorators/<feature>-api.decorator.ts` containing all Swagger metadata as composite `applyDecorators`
+- ✅ Class-level: `Api<Feature>Controller()` — combines `ApiTags` + `ApiStandardErrorResponses` (+ `ApiBearerAuth` if auth is needed)
+- ✅ Per-endpoint: `Api<Action>()` — combines `ApiEnvelopeResponse(...)` and route-specific metadata
+- ❌ Controllers MUST NOT `import` directly from `@nestjs/swagger` — only import `Api*()` from `decorators/`
+- ✅ Applies to **every** controller, including routes that only have `ApiTags` (mail, notifications, health...)
 
 ```ts
-// ✅ Đúng — decorators/users-api.decorator.ts
+// ✅ Correct — decorators/users-api.decorator.ts
 import { applyDecorators } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ApiEnvelopeResponse, ApiStandardErrorResponses } from '@common/http/api-envelope.decorator';
@@ -198,22 +198,22 @@ export function ApiCreateUser() {
   return applyDecorators(ApiEnvelopeResponse(UserResponseDto, { status: HttpStatus.CREATED }));
 }
 
-// ❌ Sai — Swagger decorator nằm rải rác trong controller
+// ❌ Wrong — Swagger decorators scattered across the controller
 @ApiTags('users')
 @ApiBearerAuth()
 @Controller('users')
 export class UsersController { ... }
 ```
 
-### 6. HTTP status — `@HttpCode` tường minh + đồng bộ với Swagger
+### 6. HTTP status — explicit `@HttpCode` + synced with Swagger
 
-- ✅ **Mọi** route HTTP phải khai báo `@HttpCode(HttpStatus.X)` tường minh (import từ `@nestjs/common`) — KHÔNG dựa vào mặc định ngầm của Nest (POST→201, còn lại→200)
-- ✅ `status` trong `ApiEnvelopeResponse(..., { status: HttpStatus.X })` dùng **cùng** `HttpStatus.X` với `@HttpCode` → runtime và Swagger luôn khớp
-- ❌ KHÔNG dùng số magic (`200`, `201`, `202`) — luôn dùng enum `HttpStatus`
-- Quy ước: tạo resource → `CREATED`; đọc/sửa/xóa trả body → `OK`; hành động bất đồng bộ (enqueue/publish) → `ACCEPTED`
+- ✅ **Every** HTTP route must declare `@HttpCode(HttpStatus.X)` explicitly (imported from `@nestjs/common`) — DO NOT rely on Nest's implicit defaults (POST→201, others→200)
+- ✅ `status` in `ApiEnvelopeResponse(..., { status: HttpStatus.X })` uses the **same** `HttpStatus.X` as `@HttpCode` → runtime and Swagger always match
+- ❌ DO NOT use magic numbers (`200`, `201`, `202`) — always use the `HttpStatus` enum
+- Convention: creating a resource → `CREATED`; read/update/delete returning body → `OK`; async action (enqueue/publish) → `ACCEPTED`
 
 ```ts
-// ✅ Đúng — @HttpCode khớp status trong decorator
+// ✅ Correct — @HttpCode matches status in decorator
 import { HttpCode, HttpStatus } from '@nestjs/common';
 
 @Post()
@@ -221,24 +221,24 @@ import { HttpCode, HttpStatus } from '@nestjs/common';
 @ApiCreateUser()                // ApiEnvelopeResponse(..., { status: HttpStatus.CREATED })
 create(@Body() dto: CreateUserDto) { ... }
 
-// ❌ Sai — không khai báo @HttpCode (dựa default), hoặc số magic lệch với docs
+// ❌ Wrong — no @HttpCode declared (relying on default), or magic number mismatched with docs
 @Post()
-@ApiCreateUser()  // docs 201 nhưng runtime cũng 201 do may mắn — vẫn FAIL vì thiếu @HttpCode
+@ApiCreateUser()  // docs 201 but runtime also 201 by luck — still FAILS because @HttpCode is missing
 create(@Body() dto: CreateUserDto) { ... }
 ```
 
 ### 7. Data access — Repository port pattern
 
-- ✅ **Service inject PORT** (`abstract class <Feature>Repository`) — KHÔNG inject `PrismaService` trực tiếp
-- ✅ **Naming theo vai trò (suffix)**: PORT = `<feature>.repository.port.ts`, IMPL = `<feature>.repository.prisma.ts` — nhìn đuôi file biết ngay vai trò (đổi adapter → `.mongo.ts`, `.http.ts`…)
-- ✅ **Port** (`repositories/<feature>.repository.port.ts`) là `abstract class <Feature>Repository` — đóng vai trò là TS type VÀ DI token; re-export model type qua `export type { <Model> }`; định nghĩa `Create<Feature>Data` và `Update<Feature>Data`
-- ✅ **Prisma impl** (`repositories/<feature>.repository.prisma.ts`) là class `@Injectable() Prisma<Feature>Repository extends <Feature>Repository` — file DUY NHẤT import `PrismaService` và `generated/prisma`
+- ✅ **Service injects PORT** (`abstract class <Feature>Repository`) — DO NOT inject `PrismaService` directly
+- ✅ **Naming by role (suffix)**: PORT = `<feature>.repository.port.ts`, IMPL = `<feature>.repository.prisma.ts` — the file suffix immediately reveals the role (switching adapter → `.mongo.ts`, `.http.ts`...)
+- ✅ **Port** (`repositories/<feature>.repository.port.ts`) is an `abstract class <Feature>Repository` — serves as both TS type AND DI token; re-exports model type via `export type { <Model> }`; defines `Create<Feature>Data` and `Update<Feature>Data`
+- ✅ **Prisma impl** (`repositories/<feature>.repository.prisma.ts`) is `@Injectable() Prisma<Feature>Repository extends <Feature>Repository` — the ONLY file that imports `PrismaService` and `generated/prisma`
 - ✅ **Module wiring**: `{ provide: <Feature>Repository, useClass: Prisma<Feature>Repository }`
-- ✅ Service import kiểu model TỪ PORT (không import từ `generated/prisma` trực tiếp)
-- ❌ Service KHÔNG được gọi `this.prisma.*` hay import `generated/prisma`
+- ✅ Service imports model types FROM PORT (not directly from `generated/prisma`)
+- ❌ Service MUST NOT call `this.prisma.*` or import `generated/prisma`
 
 ```ts
-// ✅ Đúng — port (repositories/user.repository.port.ts)
+// ✅ Correct — port (repositories/user.repository.port.ts)
 export type { User };
 export type CreateUserData = { email: string; password: string; name?: string | null };
 export abstract class UserRepository {
@@ -247,7 +247,7 @@ export abstract class UserRepository {
   // ...
 }
 
-// ✅ Đúng — Prisma impl (repositories/user.repository.prisma.ts)
+// ✅ Correct — Prisma impl (repositories/user.repository.prisma.ts)
 import { PrismaService } from '@core/prisma/prisma.service';
 import type { User } from '@generated/prisma/client';
 @Injectable()
@@ -256,67 +256,67 @@ export class PrismaUserRepository extends UserRepository {
   findById(id: string) { return this.prisma.user.findUnique({ where: { id } }); }
 }
 
-// ✅ Đúng — service inject PORT
+// ✅ Correct — service injects PORT
 import { type User, UserRepository } from '../repositories/user.repository.port';
 @Injectable()
 export class UsersService {
   constructor(private readonly users: UserRepository) {}
 }
 
-// ✅ Đúng — module wiring
+// ✅ Correct — module wiring
 { provide: UserRepository, useClass: PrismaUserRepository }
 
-// ❌ Sai — service inject PrismaService trực tiếp
+// ❌ Wrong — service injects PrismaService directly
 constructor(private readonly prisma: PrismaService) {}
 ```
 
-Lỗi Prisma được xử lý trong Prisma impl qua `Prisma.PrismaClientKnownRequestError`:
+Prisma errors are handled in the Prisma impl via `Prisma.PrismaClientKnownRequestError`:
 - `P2002`: unique constraint
 - `P2025`: record not found
 - `P2003`: foreign key constraint
 
-Multi-step writes dùng `prisma.$transaction([...])` hoặc `$transaction(async (tx) => …)` bên trong Prisma impl.
+Multi-step writes use `prisma.$transaction([...])` or `$transaction(async (tx) => ...)` inside the Prisma impl.
 
 ### 8. Date/Time — Temporal API
 
-Dùng `@js-temporal/polyfill` cho mọi logic liên quan đến ngày giờ. **Không dùng `new Date()`** cho date logic.
+Use `@js-temporal/polyfill` for all date/time logic. **Do NOT use `new Date()`** for date logic.
 
 ```ts
-// ✅ Đúng
+// ✅ Correct
 import { Temporal, toTemporalInstant } from '@js-temporal/polyfill';
 
 const now = Temporal.Now.instant();
 const today = Temporal.Now.plainDateISO();
 const expiresAt = Temporal.Now.instant().add({ hours: 1 });
 
-// Convert Prisma Date sang Temporal — dùng toTemporalInstant (function import)
+// Convert Prisma Date to Temporal — use toTemporalInstant (function import)
 const instant = toTemporalInstant.call(someDate);
 
-// ❌ Sai — không gọi như method trên Date instance
+// ❌ Wrong — do not call as a method on a Date instance
 const instant = someDate.toTemporalInstant();
 
-// ❌ Sai — không dùng new Date() cho date logic
+// ❌ Wrong — do not use new Date() for date logic
 const now = new Date();
 const expires = new Date(Date.now() + 3600 * 1000);
 ```
 
-> **Lưu ý:** Prisma `DateTime` column vẫn trả về `Date` object của JS. Chỉ convert sang Temporal khi cần tính toán.
+> **Note:** Prisma `DateTime` columns still return JS `Date` objects. Only convert to Temporal when computation is needed.
 
 ### 9. Testing (Jest)
 
-- ✅ File `*.spec.ts` **đặt cùng thư mục** với source (colocated), không đặt trong `__tests__/`
-  - Service spec đặt trong `services/`: `services/<feature>.service.spec.ts`
-- ✅ Mock = plain object + `useValue` trong `Test.createTestingModule`
-- ✅ Mock **repository PORT** (không mock `PrismaService`) trong test service
-- ✅ `jest.clearAllMocks()` trong `beforeEach`
-- ✅ Tên test mô tả **hành vi** — không bắt buộc "should … when …"
-- ✅ Assert cụ thể: `toHaveBeenCalledWith`, `rejects.toBeInstanceOf`, `rejects.toMatchObject({ status: 404 })`
-- ❌ Không dùng `jest.mock` ở top-level module
-- ❌ Không bắt buộc comment `// Arrange / Act / Assert`
-- ❌ Không đặt spec file trong `__tests__/`
+- ✅ `*.spec.ts` files are **placed in the same directory** as the source (colocated), not in `__tests__/`
+  - Service specs go in `services/`: `services/<feature>.service.spec.ts`
+- ✅ Mocks = plain object + `useValue` in `Test.createTestingModule`
+- ✅ Mock the **repository PORT** (not `PrismaService`) in service tests
+- ✅ `jest.clearAllMocks()` in `beforeEach`
+- ✅ Test names describe **behavior** — "should ... when ..." format is not mandatory
+- ✅ Specific assertions: `toHaveBeenCalledWith`, `rejects.toBeInstanceOf`, `rejects.toMatchObject({ status: 404 })`
+- ❌ Do not use `jest.mock` at the top-level module
+- ❌ `// Arrange / Act / Assert` comments are not mandatory
+- ❌ Do not place spec files in `__tests__/`
 
 ```ts
-// ✅ Đúng — mock repository PORT
+// ✅ Correct — mock repository PORT
 describe('UsersService', () => {
   let service: UsersService;
   const repo = {
@@ -339,7 +339,7 @@ describe('UsersService', () => {
     service = module.get(UsersService);
   });
 
-  it('ném NotFoundException khi không tìm thấy user', async () => {
+  it('throws NotFoundException when user is not found', async () => {
     repo.findById.mockResolvedValue(null);
     await expect(service.findOne('999')).rejects.toBeInstanceOf(NotFoundException);
   });
@@ -350,42 +350,42 @@ describe('UsersService', () => {
 
 ## Output Format (Active mode)
 
-### Danh sách vi phạm (mặc định)
+### Violation list (default)
 
 ```
-src/modules/users/services/users.service.ts:42 — Dùng `new Date()` cho date logic → Thay bằng `Temporal.Now.instant()`
-src/modules/users/dto/create-user.dto.ts:8 — `z.string().email()` (Zod 3 style) → Dùng `z.email()` (Zod 4)
-src/modules/auth/services/auth.service.ts:15 — `z.date()` trong response DTO sẽ crash bootstrap → Dùng `z.any().transform(...)`
+src/modules/users/services/users.service.ts:42 — Using `new Date()` for date logic → Replace with `Temporal.Now.instant()`
+src/modules/users/dto/create-user.dto.ts:8 — `z.string().email()` (Zod 3 style) → Use `z.email()` (Zod 4)
+src/modules/auth/services/auth.service.ts:15 — `z.date()` in response DTO will crash bootstrap → Use `z.any().transform(...)`
 ```
 
-Định dạng mỗi dòng: `file:line — vi phạm → cách fix`
+Format per line: `file:line — violation → fix`
 
-### Tóm tắt
+### Summary
 
 ```
-Tổng kết:
-  Files đã quét:       12
-  Files sạch:           9
-  Files có vi phạm:     3
-  Tổng số vi phạm:      5
+Summary:
+  Files scanned:          12
+  Clean files:             9
+  Files with violations:   3
+  Total violations:        5
 ```
 
-- `--summary`: chỉ trả về phần tóm tắt, không liệt kê từng vi phạm.
-- `--fix`: tự động sửa những vi phạm an toàn, sau đó nhắc: **"Nhớ chạy `pnpm check` để format và lint toàn bộ dự án."**
+- `--summary`: returns only the summary, no per-violation listing.
+- `--fix`: auto-fixes safe violations, then prompts: **"Remember to run `pnpm check` to format and lint the entire project."**
 
 ---
 
-## Những gì KHÔNG thuộc dự án này
+## What does NOT belong in this project
 
-Các pattern sau **không được dùng** — chúng thuộc project khác/cũ hơn:
+The following patterns **must NOT be used** — they belong to other/older projects:
 
-- ORM dạng decorator (Active Record / Data Mapper với entity class và inject repository)
-- Thư viện thao tác ngày giờ kiểu cũ (momentjs, thư viện bắt đầu bằng "day")
-- Decorator validation theo kiểu class-based (validation-by-decorator trên property)
-- Kiến trúc đa tenant / phân tách theo tổ chức (org/tenant)
-- Hằng số tập trung cho thông báo lỗi hoặc ràng buộc (ví dụ object `ERRORS`, `LIMITS`)
-- File re-export tổng hợp cho mỗi module
-- Factory config dạng `register-as` của `@nestjs/config` (không dùng trong project này)
-- Hardcode tên branch trong git diff range — luôn dùng biến `$BASE` thay vì cố định tên branch
-- Inject `PrismaService` trực tiếp vào service — phải qua repository port
-- Cấu trúc phẳng (flat) bỏ qua subfolder — luôn dùng feature-first layout với `controllers/`, `services/`, `repositories/`, `dto/`
+- Decorator-based ORM (Active Record / Data Mapper with entity classes and injected repositories)
+- Legacy date/time libraries (momentjs, libraries starting with "day")
+- Class-based validation decorators (validation-by-decorator on properties)
+- Multi-tenant / organization-partitioned architecture (org/tenant)
+- Centralized constants for error messages or constraints (e.g. `ERRORS`, `LIMITS` objects)
+- Barrel re-export files for each module
+- `register-as` factory config from `@nestjs/config` (not used in this project)
+- Hardcoded branch names in git diff ranges — always use the `$BASE` variable instead of a fixed branch name
+- Injecting `PrismaService` directly into services — must go through the repository port
+- Flat structure skipping subfolders — always use feature-first layout with `controllers/`, `services/`, `repositories/`, `dto/`

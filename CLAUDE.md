@@ -1,93 +1,97 @@
 # nest-fastify — CLAUDE.md
 
-Tài liệu ngắn gọn cho Claude. Đọc kỹ trước khi sinh code.
+Concise documentation for Claude. Read carefully before generating code.
 
 ---
 
 ## Stack
 
-| Layer | Thư viện / Công cụ |
+| Layer | Library / Tool |
 |---|---|
 | Framework | NestJS 11 + Fastify (`@nestjs/platform-fastify`) |
-| ORM | Prisma 7 — generator `prisma-client` (ESM), client tại `src/generated/prisma`, import từ `src/generated/prisma/client`, driver adapter `@prisma/adapter-pg` |
+| ORM | Prisma 7 — generator `prisma-client` (ESM), client at `src/generated/prisma`, import from `src/generated/prisma/client`, driver adapter `@prisma/adapter-pg` |
 | Validation / Serialization | nestjs-zod + Zod 4 — global `ZodValidationPipe` + `ZodSerializerInterceptor` |
 | Auth | passport-jwt, global `JwtAuthGuard` |
-| Queue / Messaging | BullMQ (`@nestjs/bullmq`) chạy ở **worker process riêng** + Bull Board (`@bull-board/*`); RabbitMQ (`@golevelup/nestjs-rabbitmq`) — topology quorum + DLX + retry-tier + alternate-exchange; producer ở API, consumer + outbox relay ở **worker** |
-| Ngày giờ | `@js-temporal/polyfill` (Temporal API) |
-| Logging | Pino (`nestjs-pino`) — global `LoggerModule` tại `src/core/logger/`; `pino-pretty` chỉ ở dev, prod là JSON; thay logger Nest qua `app.useLogger` |
+| Queue / Messaging | BullMQ (`@nestjs/bullmq`) running in a **separate worker process** + Bull Board (`@bull-board/*`); RabbitMQ (`@golevelup/nestjs-rabbitmq`) — quorum topology + DLX + retry-tier + alternate-exchange; producer in API, consumer + outbox relay in **worker** |
+| Date/Time | `@js-temporal/polyfill` (Temporal API) |
+| Logging | Pino (`nestjs-pino`) — global `LoggerModule` at `src/core/logger/`; `pino-pretty` only in dev, prod uses JSON; replace Nest logger via `app.useLogger` |
 | Tooling | Biome (lint + format), Jest, pnpm |
-| API Docs | Swagger UI tại `/docs` — xây bằng `cleanupOpenApiDoc` từ nestjs-zod |
+| API Docs | Swagger UI at `/docs` — built with `cleanupOpenApiDoc` from nestjs-zod |
 
 ---
 
-## Lệnh chính (pnpm — KHÔNG dùng npm/yarn)
+## Main commands (pnpm — DO NOT use npm/yarn)
 
 ```bash
-pnpm start:dev        # Khởi động API (producer) dev server
-pnpm start:worker:dev # Khởi động Worker process (BullMQ + Bull Board) — watch
-pnpm test             # Chạy toàn bộ Jest unit tests
-pnpm test:e2e         # Chạy e2e (jest.e2e.config.js, test/e2e/*.e2e-spec.ts)
+pnpm start:dev        # Start API (producer) dev server
+pnpm start:worker:dev # Start Worker process (BullMQ + Bull Board) — watch
+pnpm test             # Run all Jest unit tests
+pnpm test:e2e         # Run e2e (jest.e2e.config.js, test/e2e/*.e2e-spec.ts)
 pnpm check            # Biome format + lint --write
-pnpm lint             # Biome lint (không ghi)
-pnpm prisma:migrate   # Chạy Prisma migrations
-pnpm prisma:generate  # Sinh Prisma client
+pnpm lint             # Biome lint (no write)
+pnpm prisma:migrate   # Run Prisma migrations
+pnpm prisma:generate  # Generate Prisma client
 ```
 
-> Production worker: `pnpm start:worker:prod` (= `node dist/src/main.worker.js`). `nest build` biên dịch CẢ HAI entrypoint (`main`, `main.worker`).
+> Production worker: `pnpm start:worker:prod` (= `node dist/src/main.worker.js`). `nest build` compiles BOTH entrypoints (`main`, `main.worker`).
 
 ---
 
-## Convention cốt lõi
+## Core conventions
 
-### `any` — DUOC PHEP (noExplicitAny off)
-- Biome tắt `noExplicitAny` — dùng `any` khi cần.
-- Response DTO được phép và thường xuyên dùng `z.any()`.
-- `useImportType` cũng tắt — KHONG bat buoc `import type`.
+### `any` — DO NOT use in `src/` (TS any is forbidden in production code)
+- **DO NOT use `any` in production code (`src/`)**, including `as any`. No exceptions "with a comment".
+- **Exception: `any` is accepted in test files** (`test/**`, `*.spec.ts`) for test doubles. Biome only lints `src/**` so tests are not enforced.
+- Untyped APIs (e.g. custom Lua command ioredis via `defineCommand`) → **declare an explicit interface** (see `RedisLockClient` in `src/core/redis/services/lock.service.ts`), DO NOT cast `any`.
+- Need to cast through a different shape → go through `unknown` (`x as unknown as T`), NOT through `any`.
+- `z.any()` from Zod (e.g. Date pattern in response DTO) is a library runtime API — NOT TypeScript `any` → still allowed.
+- `useImportType` is off — `import type` is NOT required.
+- Note: Biome `noExplicitAny` is currently off (not auto-enforced) — this rule is enforced via review/`/review-code`. A few legacy files (`rate-limit.service.ts`, `pubsub.service.ts`, `api-envelope.decorator.ts`) still have `any`; clean them up before enabling `noExplicitAny` in `biome.json`.
 
-### Auth opt-out — `@Public()` de mo endpoint
-- Global `JwtAuthGuard` bao ve MOI route mac dinh.
-- De lo route cong khai: gan decorator `@Public()` (tu `src/common/decorators/public.decorator.ts`).
-- Controller can xac thuc: `ApiBearerAuth()` dat BEN TRONG composite decorator cua module (xem muc Swagger ben duoi), KHONG dat truc tiep tren controller.
+### Auth opt-out — `@Public()` to expose endpoints
+- Global `JwtAuthGuard` protects EVERY route by default.
+- To expose a public route: apply decorator `@Public()` (from `src/common/decorators/public.decorator.ts`).
+- Controllers requiring auth: `ApiBearerAuth()` goes INSIDE the module's composite decorator (see the Swagger section below), NOT directly on the controller.
 
 ### Logging — Pino (nestjs-pino)
-- Logger toan cuc cau hinh tai `src/core/logger/logger.module.ts`; `main.ts` thay logger Nest qua `app.useLogger(app.get(Logger))` (Logger tu `nestjs-pino`) + `bufferLogs: true`.
-- Trong service/controller: dung `Logger` cua `@nestjs/common` (da route qua Pino) hoac inject `PinoLogger` tu `nestjs-pino`. **KHONG dung `console.log`.**
-- Request log tu dong qua pino-http — KHONG tu viet interceptor log request.
-- Level: `LOG_LEVEL` env (mac dinh `debug` o dev, `info` o prod).
-- **Redact du lieu nhay cam**: danh sach path tai `src/core/logger/log-redact.ts` (`authorization`, `cookie`, `password`, `token`, `secret`… ca top-level lan `*.x`). Them field nhay cam moi vao file nay.
-- **Ghi log ra file (tuy chon)**: `LOG_FILE_ENABLED=true` → file tong `app.<date>.N.log` trong `LOG_DIR` (mac dinh `logs/`). Xoay khi **sang ngay moi HOAC file vuot `LOG_FILE_MAX_SIZE`** (mac dinh `50m`); giu `LOG_FILE_MAX_DAYS` file gan nhat (mac dinh 30) qua `pino-roll`. Console van log song song.
-- **File loi rieng (tuy chon)**: `LOG_ERROR_FILE_ENABLED=true` → them `error.<date>.N.log` CHI chua level≥error (loi van vao ca file tong → giu tuong quan).
-- **Script loc log** (jq + pino-pretty): `pnpm logs` (xem dep), `pnpm logs:tail` (live), `pnpm logs:err` (chi loi), `pnpm logs:warn` (warn+), `pnpm logs:errfile` (xem file loi rieng).
-- `req.id` trong log == header `x-request-id` tra ve client (cung nguon tu Fastify `genReqId`).
+- Global logger configured at `src/core/logger/logger.module.ts`; `main.ts` replaces the Nest logger via `app.useLogger(app.get(Logger))` (Logger from `nestjs-pino`) + `bufferLogs: true`.
+- In services/controllers: use `Logger` from `@nestjs/common` (already routed through Pino) or inject `PinoLogger` from `nestjs-pino`. **DO NOT use `console.log`.**
+- Request logging is automatic via pino-http — DO NOT write custom request-logging interceptors.
+- Level: `LOG_LEVEL` env (default `debug` in dev, `info` in prod).
+- **Redact sensitive data**: path list at `src/core/logger/log-redact.ts` (`authorization`, `cookie`, `password`, `token`, `secret`... both top-level and `*.x`). Add new sensitive fields to this file.
+- **File logging (optional)**: `LOG_FILE_ENABLED=true` → combined file `app.<date>.N.log` in `LOG_DIR` (default `logs/`). Rotates on **new day OR file exceeds `LOG_FILE_MAX_SIZE`** (default `50m`); keeps `LOG_FILE_MAX_DAYS` most recent files (default 30) via `pino-roll`. Console still logs in parallel.
+- **Separate error file (optional)**: `LOG_ERROR_FILE_ENABLED=true` → adds `error.<date>.N.log` containing ONLY level>=error (errors also go to the combined file → maintains correlation).
+- **Log filtering scripts** (jq + pino-pretty): `pnpm logs` (pretty view), `pnpm logs:tail` (live), `pnpm logs:err` (errors only), `pnpm logs:warn` (warn+), `pnpm logs:errfile` (view separate error file).
+- `req.id` in logs == `x-request-id` header returned to client (same source from Fastify `genReqId`).
 
-### Swagger — gom tap trung trong `decorators/`
-- MOI controller co file `<module>/decorators/<feature>-api.decorator.ts` chua toan bo metadata Swagger duoi dang composite `applyDecorators`.
-- Class-level: `Api<Feature>Controller()` — gom `ApiTags` + `ApiStandardErrorResponses` (+ `ApiBearerAuth` neu can auth).
-- Per-endpoint: `Api<Action>()` — gom `ApiEnvelopeResponse(...)` va metadata rieng cua route.
-- Controller **KHONG** import truc tiep tu `@nestjs/swagger` — chi import cac `Api*()` tu `decorators/`.
-- Ap dung cho MOI controller, ke ca route chi co `ApiTags` (mail, notifications, health…).
-- Module tham chieu: `src/modules/users/decorators/users-api.decorator.ts`.
+### Swagger — centralized in `decorators/`
+- EVERY controller has a file `<module>/decorators/<feature>-api.decorator.ts` containing all Swagger metadata as composite `applyDecorators`.
+- Class-level: `Api<Feature>Controller()` — combines `ApiTags` + `ApiStandardErrorResponses` (+ `ApiBearerAuth` if auth is needed).
+- Per-endpoint: `Api<Action>()` — combines `ApiEnvelopeResponse(...)` and route-specific metadata.
+- Controllers **DO NOT** import directly from `@nestjs/swagger` — only import `Api*()` from `decorators/`.
+- Applies to EVERY controller, even routes with only `ApiTags` (mail, notifications, health...).
+- Reference module: `src/modules/users/decorators/users-api.decorator.ts`.
 
-### HTTP status — `@HttpCode` tuong minh, dung `HttpStatus` cua `@nestjs/common`
-- MOI route HTTP **bat buoc** khai bao `@HttpCode(HttpStatus.X)` tuong minh — KHONG dua vao mac dinh ngam cua Nest (POST→201, con lai→200).
-- `status` trong `ApiEnvelopeResponse(..., { status: HttpStatus.X })` phai dung **cung** `HttpStatus.X` voi `@HttpCode` → runtime va Swagger luon dong bo.
-- KHONG dung so magic (`201`, `202`…) — luon dung enum `HttpStatus` (`CREATED`, `OK`, `ACCEPTED`, `NO_CONTENT`…).
-- Quy uoc status: tao resource → `CREATED` (201); doc/sua/xoa tra body → `OK` (200); hanh dong bat dong bo (enqueue/publish) → `ACCEPTED` (202).
+### HTTP status — explicit `@HttpCode`, use `HttpStatus` from `@nestjs/common`
+- EVERY HTTP route **MUST** declare `@HttpCode(HttpStatus.X)` explicitly — DO NOT rely on Nest's implicit defaults (POST->201, others->200).
+- `status` in `ApiEnvelopeResponse(..., { status: HttpStatus.X })` MUST match the **same** `HttpStatus.X` as `@HttpCode` → runtime and Swagger always stay in sync.
+- DO NOT use magic numbers (`201`, `202`...) — always use the `HttpStatus` enum (`CREATED`, `OK`, `ACCEPTED`, `NO_CONTENT`...).
+- Status conventions: create resource → `CREATED` (201); read/update/delete returning body → `OK` (200); async action (enqueue/publish) → `ACCEPTED` (202).
 
-### Date trong response DTO — KHONG dung `z.date()`
-- `z.date()` lam `z.toJSONSchema()` (nestjs-zod dung cho Swagger) bi crash — **app khong boot**.
-- Thay the bang:
+### Date in response DTO — DO NOT use `z.date()`
+- `z.date()` causes `z.toJSONSchema()` (used by nestjs-zod for Swagger) to crash — **app will not boot**.
+- Replace with:
   ```ts
   z.any().transform((v) => v instanceof Date ? v.toISOString() : String(v))
   ```
-- Day la pattern bat buoc cho moi field kieu Date trong response DTO.
+- This is the mandatory pattern for every Date field in response DTOs.
 
-### Logic ngay thang dung Temporal
+### Date/time logic uses Temporal
 - Import: `import { Temporal, toTemporalInstant } from '@js-temporal/polyfill'`
-- Chuyen Prisma `Date` sang Temporal: `toTemporalInstant.call(date)` (KHONG phai `date.toTemporalInstant()`).
-- Tranh dung `new Date()` cho logic nghiep vu.
+- Convert Prisma `Date` to Temporal: `toTemporalInstant.call(date)` (NOT `date.toTemporalInstant()`).
+- Avoid using `new Date()` for business logic.
 
-### Cau truc du an — feature-first, co phan tang ro rang
+### Project structure — feature-first, with clear layering
 
 ```
 src/
@@ -96,24 +100,24 @@ src/
 ├── app.module.ts    # root module API
 ├── worker.module.ts # root module Worker (Redis + Prisma + RMQ consumer + Outbox relay)
 ├── common/          # cross-cutting concerns
-│   ├── auth/        # basic-auth.ts (verifyBasicAuth + Fastify hook cho Bull Board)
-│   ├── decorators/  # @Public(), v.v.
+│   ├── auth/        # basic-auth.ts (verifyBasicAuth + Fastify hook for Bull Board)
+│   ├── decorators/  # @Public(), etc.
 │   ├── filters/     # HttpExceptionFilter
 │   ├── guards/      # JwtAuthGuard
 │   └── interceptors/
-├── core/            # infrastructure (khong co business logic)
+├── core/            # infrastructure (no business logic)
 │   ├── config/      # Zod-validated env
 │   ├── prisma/      # PrismaService (@Global)
 │   ├── queue/       # BullMQ root
 │   ├── messaging/   # RabbitMQ client
 │   ├── redis/        # RedisModule @Global: Cache/Lock/RateLimit/PubSub (ioredis + port pattern)
-│   └── health/      # GET /health (reuse o ca API lan Worker)
+│   └── health/      # GET /health (reused in both API and Worker)
 └── modules/         # business features
     ├── users/
     │   ├── users.module.ts
     │   ├── controllers/
-    │   ├── decorators/    # Swagger gom tap trung — composite @Api*()
-    │   ├── services/      # *.service.ts (test o test/unit/, KHONG colocated)
+    │   ├── decorators/    # Centralized Swagger — composite @Api*()
+    │   ├── services/      # *.service.ts (tests in test/unit/, NOT colocated)
     │   ├── repositories/  # *.repository.port.ts (PORT) + *.repository.prisma.ts (IMPL)
     │   └── dto/
     ├── auth/
@@ -122,88 +126,91 @@ src/
     └── notifications/     # RabbitMQ consumer (NotificationsConsumerModule)
 ```
 
-- **Path alias cho import vuot cap (khac module/layer)** — khai bao o `tsconfig.json` (`paths`), `.swcrc` (`jsc.baseUrl` + `jsc.paths`) va `jest.config.js` (`moduleNameMapper`):
+- **Path aliases for cross-module/layer imports** — declared in `tsconfig.json` (`paths`), `.swcrc` (`jsc.baseUrl` + `jsc.paths`) and `jest.config.js` (`moduleNameMapper`):
   - `@common/*` → `src/common/*`
   - `@core/*` → `src/core/*`
   - `@modules/*` → `src/modules/*`
   - `@generated/*` → `src/generated/*`
-  - Dung alias khi import vuot ra ngoai module/layer hien tai (truoc day la `../../../`). Vi du: `@common/decorators/public.decorator`, `@modules/users/dto/user-response.dto`, `@generated/prisma/client`.
-  - **Import trong cung module** (cung folder `<feature>/`) van dung relative ngan (`./`, `../dto/`, `../services/`) — KHONG alias hoa.
-  - SWC rewrite alias → relative luc build (xem `dist/`), nen runtime khong can `tsconfig-paths`.
-- Khong tao file barrel `index.ts`.
-- Module file (`<feature>.module.ts`) nam thang trong `src/modules/<feature>/`.
+  - Use aliases when importing outside the current module/layer (previously `../../../`). Example: `@common/decorators/public.decorator`, `@modules/users/dto/user-response.dto`, `@generated/prisma/client`.
+  - **Imports within the same module** (same `<feature>/` folder) still use short relative paths (`./`, `../dto/`, `../services/`) — DO NOT use aliases.
+  - SWC rewrites aliases → relative paths at build time (see `dist/`), so runtime does not need `tsconfig-paths`.
+- Do not create barrel `index.ts` files.
+- Module files (`<feature>.module.ts`) live directly in `src/modules/<feature>/`.
 
 ### Repository port pattern — data access
 
-- **Service inject PORT** (`abstract class <Feature>Repository`) — KHONG inject `PrismaService` truc tiep.
-- **Naming theo vai tro (suffix):** PORT = `<feature>.repository.port.ts`, IMPL = `<feature>.repository.prisma.ts` — nhin duoi file la biet vai tro. Doi adapter khac → `<feature>.repository.<adapter>.ts` (vd `.mongo.ts`).
-- **PORT** (`repositories/<feature>.repository.port.ts`): `abstract class` dong vai tro TS type VA DI token; re-export model type qua `export type { <Model> }`; dinh nghia `Create<F>Data` / `Update<F>Data`.
-- **Prisma impl** (`repositories/<feature>.repository.prisma.ts`): file DUY NHAT import `PrismaService` va `generated/prisma`.
+- **Services inject PORT** (`abstract class <Feature>Repository`) — DO NOT inject `PrismaService` directly.
+- **Naming by role (suffix):** PORT = `<feature>.repository.port.ts`, IMPL = `<feature>.repository.prisma.ts` — the file suffix tells you the role. Switching adapter → `<feature>.repository.<adapter>.ts` (e.g. `.mongo.ts`).
+- **PORT** (`repositories/<feature>.repository.port.ts`): `abstract class` serves as both TS type AND DI token; re-exports model type via `export type { <Model> }`; defines `Create<F>Data` / `Update<F>Data`.
+- **Prisma impl** (`repositories/<feature>.repository.prisma.ts`): the ONLY file that imports `PrismaService` and `generated/prisma`.
 - **Module wiring**: `{ provide: <Feature>Repository, useClass: Prisma<Feature>Repository }`.
-- Service import kieu model TU PORT, khong import tu `generated/prisma` truc tiep.
+- Services import model types FROM PORT, not directly from `generated/prisma`.
 
-Xem `src/modules/users/` la module tham chieu chinh xac nhat.
+See `src/modules/users/` as the most accurate reference module.
 
-### Redis — inject PORT, không inject REDIS_CLIENT trực tiếp trong module nghiệp vụ
-- Module nghiệp vụ chỉ inject port: `CacheService`, `LockService`, `RateLimitService`, `PubSubService`.
-- KHÔNG inject `REDIS_CLIENT` / `REDIS_SUBSCRIBER` symbol trực tiếp bên ngoài `src/core/redis/` (ngoại trừ `HealthController`).
-- Lock và RateLimit chạy atomic qua Lua script — không dùng get+set thường.
-- PubSub (ioredis) không thay thế RabbitMQ cho việc cần durable/fanout cross-service.
-- `buildRedisBaseOptions` được dùng chung cho BullMQ (KHÔNG thêm `keyPrefix` vào BullMQ — nó có cơ chế prefix riêng).
+### Redis — inject PORT, do not inject REDIS_CLIENT directly in business modules
+- Business modules only inject ports: `CacheService`, `LockService`, `RateLimitService`, `PubSubService`.
+- DO NOT inject `REDIS_CLIENT` / `REDIS_SUBSCRIBER` symbols directly outside `src/core/redis/` (except `HealthController`).
+- Lock and RateLimit run atomically via Lua scripts — do not use plain get+set.
+- `LockService` supports: `acquire`/`withLock` with `opts?` — `retry` (wait + full-jitter backoff, monotonic deadline), `autoRenew` (watchdog self-scheduling, **best-effort liveness NOT safety**, requires `ttlMs >= 3000`), `fencing` (**opt-in** — does NOT create `lock:fence:*` keys by default to avoid leaks; only enable when actually comparing fencing tokens at write points), `onTimeout: 'throw'|'return'`. `withLock` defaults to throw 409 (overload keeps `Promise<T>`); `onTimeout:'return'` → `Promise<T | undefined>`, does NOT run fn.
+- Lock key business format: `<domain>:<id>[:<action>]` (e.g. `user:42:sync`); callers DO NOT prepend `lock:` themselves. High key cardinality → keep `fencing` off.
+- Decorator `@WithLock({ key: (...args) => string, ttlMs, retry?, autoRenew?, onTimeout? })` (from `@core/redis/decorators/with-lock.decorator`) wraps internal service methods; uses a "service holder" set during the `RedisModule` lifecycle. If you need loss-awareness (`lock.signal`), use `withLock(...)` directly, DO NOT use the decorator.
+- PubSub (ioredis) does not replace RabbitMQ for durable/fanout cross-service needs.
+- `buildRedisBaseOptions` is shared with BullMQ (DO NOT add `keyPrefix` to BullMQ — it has its own prefix mechanism).
 
 ### RabbitMQ / Messaging — `@golevelup/nestjs-rabbitmq`
 
-- **MessagingModule** (`src/core/messaging/`): `MessagingModule.forRoot({ consumer })` — API nạp với `consumer: false` (producer-only, `registerHandlers: false`); Worker nạp với `consumer: true` (đăng ký handler + topology assert).
-- **Exchanges** (tên suy từ env `RABBITMQ_EXCHANGE`, mặc định `app`):
-  - `app.events` (topic) — exchange chính, có `alternate-exchange: app.unrouted`.
-  - `app.retry` (topic) — retry-tier queues bind vào đây.
-  - `app.dlx` (topic) — dead-letter exchange; message hết retry vào DLQ.
-- **Topology tập trung** tại `src/core/messaging/topology.ts` — assert toàn bộ queues/exchanges khi worker khởi động. Consumer dùng `@RabbitSubscribe({ createQueueIfNotExists: false })` (KHÔNG để golevelup tự tạo queue).
-- **Per-subscription queue**: `<subscriber>.<event>.q` (quorum) + retry-tier queues (durable, TTL tăng dần) + `<subscriber>.<event>.dlq` (quorum).
-- **Contract Zod** tại `src/core/messaging/messaging.contracts.ts`: object `EventContracts` map `routingKey → Zod schema`; `SUBSCRIPTIONS` list. Thêm event mới = thêm 1 entry vào `EventContracts` + 1 entry vào `SUBSCRIPTIONS` + handler.
-- **Publish**: `EventPublisherService.publish(routingKey, payload, opts?)` — validate payload qua contract trước khi gửi. Dùng ở API và worker.
-- **Consume**: `MessageConsumer` bọc handler — validate payload → idempotency check (Redis lock + marker) → gọi handler → Ack. Lỗi có thể retry: tiered-backoff qua `app.retry` → nếu hết lượt → DLQ (Nack no-requeue). Lỗi publish → Nack requeue.
-- **Transactional outbox** (event gắn DB):
-  - Service ghi record + `OutboxRepository.enqueue(event)` trong cùng `TransactionManager.run(...)` (atomic, qua `prisma.db` ALS context).
-  - `OutboxRelay` (worker) poll outbox → `EventPublisherService.publish` → mark sent.
-  - Event rời (không cần atomicity với DB) vd `notification.created` → publish trực tiếp.
-- **Health**: `GET /health` trả field `rabbitmq: 'up' | 'down'`.
-- **Env**: `RABBITMQ_EXCHANGE`, `RABBITMQ_PREFETCH`, `RABBITMQ_MAX_RETRIES`, `RABBITMQ_RETRY_DELAYS_MS`, `RABBITMQ_QUORUM_DELIVERY_LIMIT`, `RABBITMQ_IDEMPOTENCY_TTL`, `RABBITMQ_OUTBOX_POLL_MS`, `RABBITMQ_OUTBOX_BATCH_SIZE` (đã bỏ `RABBITMQ_QUEUE`).
+- **MessagingModule** (`src/core/messaging/`): `MessagingModule.forRoot({ consumer })` — API loads with `consumer: false` (producer-only, `registerHandlers: false`); Worker loads with `consumer: true` (registers handlers + asserts topology).
+- **Exchanges** (names derived from env `RABBITMQ_EXCHANGE`, default `app`):
+  - `app.events` (topic) — main exchange, with `alternate-exchange: app.unrouted`.
+  - `app.retry` (topic) — retry-tier queues bind to this.
+  - `app.dlx` (topic) — dead-letter exchange; messages that exhaust retries go to DLQ.
+- **Centralized topology** at `src/core/messaging/topology.ts` — asserts all queues/exchanges when worker starts. Consumers use `@RabbitSubscribe({ createQueueIfNotExists: false })` (DO NOT let golevelup auto-create queues).
+- **Per-subscription queue**: `<subscriber>.<event>.q` (quorum) + retry-tier queues (durable, increasing TTL) + `<subscriber>.<event>.dlq` (quorum).
+- **Zod contracts** at `src/core/messaging/messaging.contracts.ts`: object `EventContracts` maps `routingKey → Zod schema`; `SUBSCRIPTIONS` list. Adding a new event = add 1 entry to `EventContracts` + 1 entry to `SUBSCRIPTIONS` + handler.
+- **Publish**: `EventPublisherService.publish(routingKey, payload, opts?)` — validates payload against contract before sending. Used in both API and worker.
+- **Consume**: `MessageConsumer` wraps handler — validate payload → idempotency check (Redis lock + marker) → call handler → Ack. Retryable errors: tiered-backoff via `app.retry` → if retries exhausted → DLQ (Nack no-requeue). Publish errors → Nack requeue.
+- **Transactional outbox** (events tied to DB):
+  - Service writes record + `OutboxRepository.enqueue(event)` within the same `TransactionManager.run(...)` (atomic, via `prisma.db` ALS context).
+  - `OutboxRelay` (worker) polls outbox → `EventPublisherService.publish` → marks sent.
+  - Standalone events (no DB atomicity needed) e.g. `notification.created` → publish directly.
+- **Health**: `GET /health` returns field `rabbitmq: 'up' | 'down'`.
+- **Env**: `RABBITMQ_EXCHANGE`, `RABBITMQ_PREFETCH`, `RABBITMQ_MAX_RETRIES`, `RABBITMQ_RETRY_DELAYS_MS`, `RABBITMQ_QUORUM_DELIVERY_LIMIT`, `RABBITMQ_IDEMPOTENCY_TTL`, `RABBITMQ_OUTBOX_POLL_MS`, `RABBITMQ_OUTBOX_BATCH_SIZE` (removed `RABBITMQ_QUEUE`).
 
-### Worker process — BullMQ chạy process/cổng độc lập
-- **Hai process, một codebase, hai entrypoint**: API (`src/main.ts`, `:PORT`) thuần **producer** (chỉ enqueue); Worker (`src/main.worker.ts`, `:WORKER_PORT` mặc định 3001) chạy `@Processor` + Bull Board. Mục tiêu: job nặng KHÔNG chiếm event loop của API.
-- **WorkerModule** (`src/worker.module.ts`): nạp — `CoreConfigModule`, `LoggerModule`, `RedisModule`, `PrismaModule`, `QueueModule`, `MessagingModule.forRoot({ consumer: true })`, `OutboxModule.withRelay()`, `BullBoardModule.forRoot({ route: '/admin/queues', adapter: FastifyAdapter })` + các `<feature>-worker.module.ts` (BullMQ processor) + `NotificationsConsumerModule`, `UsersConsumerModule`, `UnroutedConsumer`. Reuse `HealthController` (`:WORKER_PORT/health`). KHÔNG đăng ký global `APP_*`. Worker NAY mở cả DB (Prisma) và RMQ connection.
-- **Feature có background job → tách producer/consumer**:
-  - `<feature>.module.ts` (phía API): giữ `registerQueue` + producer, **BỎ** processor.
-  - `<feature>-worker.module.ts` (phía worker): `registerQueue` + `BullBoardModule.forFeature({ name, adapter: BullMQAdapter })` + `Processor`. Feature nào cần DB thì module worker NÀY tự import `PrismaModule`.
-  - Module tham chiếu: `src/modules/mail/` (`mail.module.ts` + `mail-worker.module.ts`).
-- **Concurrency**: đặt qua `@Processor('<q>', { concurrency })`. Đọc từ env bằng helper THUẦN (vd `mailWorkerConcurrency()` đọc `process.env.MAIL_WORKER_CONCURRENCY`, fallback an toàn) — KHÔNG dùng ConfigService vì chưa khả dụng lúc decorate class.
-- **Bull Board** `/admin/queues` (CHỈ trên worker): bảo vệ bằng **Fastify `onRequest` hook** trong `main.worker.ts` (KHÔNG phải Nest middleware — bull-board đăng ký route qua plugin Fastify đóng gói; hook gắn vào `adapter.getInstance()` TRƯỚC `NestFactory.create`). Helper auth thuần: `src/common/auth/basic-auth.ts`. Route hook phải KHỚP `BullBoardModule.forRoot({ route })` — xem cảnh báo footgun global-prefix trong `main.worker.ts`.
-- **Env worker** (trong `env.schema.ts`, cả 2 process validate CHUNG schema): `WORKER_PORT` (3001), `MAIL_WORKER_CONCURRENCY` (5), `BULLBOARD_USER` (admin), `BULLBOARD_PASSWORD` (KHÔNG default — `superRefine` **bắt buộc** ở `production`; dev fallback `admin`).
-- **Test Bull Board UI bằng trình duyệt (Playwright/Chrome)**: xác thực bằng **header** (`httpCredentials` / `setExtraHTTPHeaders({ Authorization: 'Basic <base64>' })`) và mở URL SẠCH (`http://localhost:3001/admin/queues`). **KHÔNG** nhúng creds vào URL (`http://admin:pass@localhost:3001/...`): trang + dữ liệu queue (axios/XHR) vẫn chạy, NHƯNG i18n của Bull Board dùng `fetch()` tải `static/locales/{lng}/messages.json` — `fetch()` tương đối resolve trên document URL có credentials sẽ bị trình duyệt cấm → UI hiện **key i18n thô** (`QUEUE.STATUS.ACTIVE`…). Đây là artifact của test, KHÔNG phải lỗi (user thật dùng hộp Basic Auth, creds nằm ngoài URL).
+### Worker process — BullMQ runs in a separate process/port
+- **Two processes, one codebase, two entrypoints**: API (`src/main.ts`, `:PORT`) is purely a **producer** (only enqueues); Worker (`src/main.worker.ts`, `:WORKER_PORT` default 3001) runs `@Processor` + Bull Board. Goal: heavy jobs DO NOT block the API event loop.
+- **WorkerModule** (`src/worker.module.ts`): loads — `CoreConfigModule`, `LoggerModule`, `RedisModule`, `PrismaModule`, `QueueModule`, `MessagingModule.forRoot({ consumer: true })`, `OutboxModule.withRelay()`, `BullBoardModule.forRoot({ route: '/admin/queues', adapter: FastifyAdapter })` + the `<feature>-worker.module.ts` files (BullMQ processors) + `NotificationsConsumerModule`, `UsersConsumerModule`, `UnroutedConsumer`. Reuses `HealthController` (`:WORKER_PORT/health`). DO NOT register global `APP_*`. Worker NOW opens both DB (Prisma) and RMQ connections.
+- **Features with background jobs → split producer/consumer**:
+  - `<feature>.module.ts` (API side): keeps `registerQueue` + producer, **REMOVES** processor.
+  - `<feature>-worker.module.ts` (worker side): `registerQueue` + `BullBoardModule.forFeature({ name, adapter: BullMQAdapter })` + `Processor`. Features that need DB have their worker module import `PrismaModule` themselves.
+  - Reference module: `src/modules/mail/` (`mail.module.ts` + `mail-worker.module.ts`).
+- **Concurrency**: set via `@Processor('<q>', { concurrency })`. Read from env using a PLAIN helper (e.g. `mailWorkerConcurrency()` reads `process.env.MAIL_WORKER_CONCURRENCY`, safe fallback) — DO NOT use ConfigService since it is not available at class decoration time.
+- **Bull Board** `/admin/queues` (ONLY on worker): protected by **Fastify `onRequest` hook** in `main.worker.ts` (NOT Nest middleware — bull-board registers routes via an encapsulated Fastify plugin; hook attaches to `adapter.getInstance()` BEFORE `NestFactory.create`). Plain auth helper: `src/common/auth/basic-auth.ts`. Route hook MUST MATCH `BullBoardModule.forRoot({ route })` — see the global-prefix footgun warning in `main.worker.ts`.
+- **Worker env** (in `env.schema.ts`, both processes validate the SAME schema): `WORKER_PORT` (3001), `MAIL_WORKER_CONCURRENCY` (5), `BULLBOARD_USER` (admin), `BULLBOARD_PASSWORD` (NO default — `superRefine` **requires** it in `production`; dev fallback `admin`).
+- **Testing Bull Board UI in browser (Playwright/Chrome)**: authenticate via **headers** (`httpCredentials` / `setExtraHTTPHeaders({ Authorization: 'Basic <base64>' })`) and open a CLEAN URL (`http://localhost:3001/admin/queues`). **DO NOT** embed creds in URL (`http://admin:pass@localhost:3001/...`): the page + queue data (axios/XHR) will still work, BUT Bull Board's i18n uses `fetch()` to load `static/locales/{lng}/messages.json` — `fetch()` resolving relative to a document URL with embedded credentials gets blocked by the browser → UI shows **raw i18n keys** (`QUEUE.STATUS.ACTIVE`...). This is a test artifact, NOT a bug (real users use the Basic Auth dialog, creds stay outside the URL).
 
-### Tests — tach rieng trong `test/`, KHONG colocated
-- Test KHONG nam canh source nua. Cay `test/` phan chieu cau truc `src/`:
-  - **Unit**: `test/unit/<duong-dan-mirror-src>/<ten>.spec.ts`.
-    - Vi du: source `src/modules/users/services/users.service.ts` → test `test/unit/modules/users/services/users.service.spec.ts`.
-  - **E2E / integration**: `test/e2e/*.e2e-spec.ts`, chay qua `pnpm test:e2e` (config rieng `jest.e2e.config.js`). Main `jest.config.js` (`.spec.ts$`) KHONG nhat file `*.e2e-spec.ts`.
-  - KHONG dung `__tests__/`.
-- **Import source trong test luon dung path alias** (`@common/*`, `@core/*`, `@modules/*`, `@generated/*`) — vi test nam ngoai module nen khong dung relative. (Quy uoc "relative trong cung module" o tren CHI ap dung cho file source trong `src/`.)
-- Cau hinh:
-  - `jest.config.js`: `rootDir: '.'`, `roots: ['<rootDir>/test']`, alias `moduleNameMapper` tro vao `src/`.
-  - `tsconfig.spec.json` (`include: ['src','test']`, `rootDir: '.'`) cho typecheck test — `pnpm typecheck` chay file nay. Build (`tsconfig.build.json`) van loai `test` + `*.spec.ts`.
-- Mock **repository PORT** bang plain object `useValue` — khong mock `PrismaService`.
-- Goi `jest.clearAllMocks()` trong `beforeEach`.
+### Tests — separated in `test/`, NOT colocated
+- Tests DO NOT live next to source files. The `test/` tree mirrors the `src/` structure:
+  - **Unit**: `test/unit/<path-mirroring-src>/<name>.spec.ts`.
+    - Example: source `src/modules/users/services/users.service.ts` → test `test/unit/modules/users/services/users.service.spec.ts`.
+  - **E2E / integration**: `test/e2e/*.e2e-spec.ts`, run via `pnpm test:e2e` (separate config `jest.e2e.config.js`). Main `jest.config.js` (`.spec.ts$`) does NOT pick up `*.e2e-spec.ts` files.
+  - DO NOT use `__tests__/`.
+- **Imports in tests always use path aliases** (`@common/*`, `@core/*`, `@modules/*`, `@generated/*`) — because tests live outside the module so relative paths are not used. (The "relative within the same module" convention above ONLY applies to source files in `src/`.)
+- Configuration:
+  - `jest.config.js`: `rootDir: '.'`, `roots: ['<rootDir>/test']`, alias `moduleNameMapper` pointing to `src/`.
+  - `tsconfig.spec.json` (`include: ['src','test']`, `rootDir: '.'`) for typechecking tests — `pnpm typecheck` uses this file. Build (`tsconfig.build.json`) still excludes `test` + `*.spec.ts`.
+- Mock **repository PORT** with plain object `useValue` — do not mock `PrismaService`.
+- Call `jest.clearAllMocks()` in `beforeEach`.
 
 ---
 
 ## Slash commands (`.claude/commands/`)
 
-| Command | Mo ta |
+| Command | Description |
 |---|---|
-| `/coding-convention` | Quy uoc code — xem thu dong (passive) hoac quet va sua (`--fix`) |
-| `/review-code` | Review chat luong theo 11 tieu chi (co tieu chi kien truc) |
-| `/create-module` | Sinh feature module feature-first day du (repository port + Prisma impl + nestjs-zod) |
-| `/create-dto` | Sinh Zod DTO: create / update / response / query |
-| `/create-test` | Sinh Jest spec trong `test/unit/` (mirror src), mock repository PORT |
-| `/create-tdd` | Workflow red-green-refactor co huong dan |
+| `/coding-convention` | Code conventions — view passively or scan and fix (`--fix`) |
+| `/review-code` | Quality review against 11 criteria (includes architecture criteria) |
+| `/create-module` | Generate a complete feature-first module (repository port + Prisma impl + nestjs-zod) |
+| `/create-dto` | Generate Zod DTO: create / update / response / query |
+| `/create-test` | Generate Jest spec in `test/unit/` (mirrors src), mock repository PORT |
+| `/create-tdd` | Red-green-refactor workflow with guidance |

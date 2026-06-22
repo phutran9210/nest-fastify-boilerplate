@@ -1,23 +1,23 @@
-# /create-test — Tạo Jest unit test cho service hoặc controller
+# /create-test — Create Jest unit test for a service or controller
 
-Đọc file nguồn tại `$ARGUMENTS`, rồi tạo file spec trong cây `test/unit/` (phản chiếu cấu trúc `src/`).
+Read the source file at `$ARGUMENTS`, then create a spec file in the `test/unit/` tree (mirroring the `src/` structure).
 
-## Quy tắc đặt file
+## File placement rules
 
-Test KHÔNG colocated. File spec nằm trong `test/unit/` theo đúng đường dẫn mirror của `src/`. Ví dụ:
+Tests are NOT colocated. Spec files live in `test/unit/` following the exact mirror path of `src/`. For example:
 
-- Nguồn: `src/modules/users/services/users.service.ts`
+- Source: `src/modules/users/services/users.service.ts`
 - Test:   `test/unit/modules/users/services/users.service.spec.ts`
 
-KHÔNG đặt test trong `__tests__/` và KHÔNG đặt kế bên file nguồn.
+DO NOT place tests in `__tests__/` and DO NOT place them next to the source file.
 
-**Import source trong test luôn dùng path alias** (`@common/*`, `@core/*`, `@modules/*`, `@generated/*`) — KHÔNG dùng relative `./` hay `../` để trỏ về `src/`. Ví dụ: `import { UsersService } from '@modules/users/services/users.service'`.
+**Imports of source files in tests always use path aliases** (`@common/*`, `@core/*`, `@modules/*`, `@generated/*`) — DO NOT use relative `./` or `../` to point back to `src/`. For example: `import { UsersService } from '@modules/users/services/users.service'`.
 
-## Cấu trúc module test
+## Test module structure
 
-Dùng `Test.createTestingModule` với tất cả dependency được mock bằng **plain object** thông qua `useValue`. KHÔNG dùng `jest.mock(...)` trực tiếp để mock module, KHÔNG dùng `createMock<...>()`, KHÔNG dùng `getRepositoryToken`, KHÔNG dùng `@InjectRepository` (đây là pattern của TypeORM, không phải dự án này).
+Use `Test.createTestingModule` with all dependencies mocked as **plain objects** via `useValue`. DO NOT use `jest.mock(...)` directly to mock modules, DO NOT use `createMock<...>()`, DO NOT use `getRepositoryToken`, DO NOT use `@InjectRepository` (that is a TypeORM pattern, not used in this project).
 
-### Ví dụ đầy đủ — service dùng repository port
+### Full example — service using a repository port
 
 ```ts
 import { Test } from '@nestjs/testing';
@@ -62,50 +62,50 @@ describe('ProductsService', () => {
 });
 ```
 
-> Mock là **repository PORT** (`ProductRepository`), không phải `PrismaService`. Service không biết gì về Prisma.
+> The mock targets the **repository PORT** (`ProductRepository`), not `PrismaService`. The service knows nothing about Prisma.
 
-### Mock dependency service (không phải repository)
+### Mocking dependency services (not repositories)
 
-Nếu service cần inject một service khác (ví dụ `UsersService`), tạo plain object tương tự:
+If a service injects another service (e.g. `UsersService`), create a plain object in the same way:
 
 ```ts
 const users = { findByEmail: jest.fn(), create: jest.fn() };
-// Rồi truyền vào providers:
+// Then pass it into providers:
 { provide: UsersService, useValue: users }
 ```
 
-## Quy tắc viết test
+## Test writing rules
 
-- `beforeEach` luôn gọi `jest.clearAllMocks()` trước khi compile module.
-- Tên test mô tả **hành vi** bằng ngôn ngữ tự nhiên, ví dụ:
+- `beforeEach` always calls `jest.clearAllMocks()` before compiling the module.
+- Test names describe **behavior** in natural language, for example:
   - `'findOne throws NotFoundException when the user does not exist'`
   - `'create delegates to repository.create and returns the new user'`
-  - KHÔNG bắt buộc template cứng `should … when …`.
-  - KHÔNG thêm comment `// Arrange / // Act / // Assert`.
-- Assertion phải **cụ thể**:
-  - `toHaveBeenCalledWith(...)` — kiểm tra đúng tham số
-  - `toBe(...)` / `toEqual(...)` — kiểm tra giá trị trả về
-  - `rejects.toBeInstanceOf(NotFoundException)` hoặc `rejects.toMatchObject({ status: 404 })` — kiểm tra exception
+  - A rigid `should ... when ...` template is NOT required.
+  - DO NOT add `// Arrange / // Act / // Assert` comments.
+- Assertions must be **specific**:
+  - `toHaveBeenCalledWith(...)` — verify the exact arguments
+  - `toBe(...)` / `toEqual(...)` — verify the return value
+  - `rejects.toBeInstanceOf(NotFoundException)` or `rejects.toMatchObject({ status: 404 })` — verify exceptions
 
-## Các bước thực hiện
+## Steps to follow
 
-1. Đọc file tại `$ARGUMENTS` để hiểu class, constructor dependencies, và các method public.
-2. Xác định đường dẫn file spec: lấy đường dẫn nguồn dưới `src/`, đổi tiền tố `src/` → `test/unit/`, đổi `.ts` → `.spec.ts`. Vd `src/modules/users/services/users.service.ts` → `test/unit/modules/users/services/users.service.spec.ts`. Tạo thư mục cha nếu chưa có.
-3. Tạo mock object cho từng dependency:
-   - Nếu service inject repository PORT (abstract class) → mock PORT đó bằng plain object.
-   - Nếu service inject một service khác → mock service đó bằng plain object.
-4. Viết ít nhất một test case cho mỗi method public của class:
-   - Happy path (trả về đúng dữ liệu).
-   - Error/edge case nếu method có xử lý lỗi (ví dụ: not found, validation fail).
-5. Chỉ import những gì thực sự dùng.
-6. Không tạo file nào khác ngoài file spec.
+1. Read the file at `$ARGUMENTS` to understand the class, constructor dependencies, and public methods.
+2. Determine the spec file path: take the source path under `src/`, replace the `src/` prefix with `test/unit/`, and change `.ts` to `.spec.ts`. E.g. `src/modules/users/services/users.service.ts` → `test/unit/modules/users/services/users.service.spec.ts`. Create the parent directory if it does not exist.
+3. Create a mock object for each dependency:
+   - If the service injects a repository PORT (abstract class) → mock that PORT with a plain object.
+   - If the service injects another service → mock that service with a plain object.
+4. Write at least one test case for each public method of the class:
+   - Happy path (returns the correct data).
+   - Error/edge case if the method handles errors (e.g. not found, validation failure).
+5. Only import what is actually used.
+6. Do not create any files other than the spec file.
 
-## Chạy test
+## Running tests
 
 ```bash
-# Chạy toàn bộ
+# Run all tests
 pnpm test
 
-# Chạy riêng file vừa tạo
+# Run only the newly created file
 pnpm test test/unit/modules/users/services/users.service.spec.ts
 ```

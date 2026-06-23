@@ -4,8 +4,9 @@ NestJS 11 boilerplate on the **Fastify** adapter with a module structure split i
 `common/` (cross-cutting), `core/` (infrastructure), and `modules/` (business features).
 
 **Stack:** PostgreSQL (Prisma 7 + pg driver adapter), Redis + BullMQ, RabbitMQ
-(`@nestjs/microservices`), Zod v4 validation via `nestjs-zod`, Swagger/OpenAPI, JWT auth
-(Passport). Package manager: **pnpm**. Formatter/linter: **Biome**.
+(`@nestjs/microservices`), Zod v4 validation via `nestjs-zod`, Swagger/OpenAPI, **Better Auth**
+(email+password, Google/Facebook social, email verification, bearer tokens, admin/roles — mounted
+on Fastify at `/api/auth/*`). Package manager: **pnpm**. Formatter/linter: **Biome**.
 
 ## Quick start
 
@@ -18,6 +19,7 @@ pnpm start:dev
 ```
 
 - API: http://localhost:3000
+- Auth endpoints (Better Auth): http://localhost:3000/api/auth/* (e.g. `POST /api/auth/sign-up/email`, `POST /api/auth/sign-in/email`) — served outside Nest, so NOT listed in Swagger
 - Swagger UI: http://localhost:3000/docs (JSON at `/docs-json`)
 - Health: http://localhost:3000/health
 - RabbitMQ management UI: http://localhost:15673 (guest / guest)
@@ -50,22 +52,23 @@ src/
 ├── common/                    # cross-cutting concerns (no business logic)
 │   ├── decorators/            # @Public() and other shared decorators
 │   ├── filters/               # HttpExceptionFilter (global)
-│   ├── guards/                # JwtAuthGuard (global APP_GUARD; skips non-HTTP contexts)
+│   ├── guards/                # BetterAuthGuard + RolesGuard (global APP_GUARDs; cookie/bearer + @Roles)
 │   └── interceptors/          # LoggingInterceptor (HTTP-only)
 ├── core/                      # infrastructure (no business logic)
 │   ├── config/                # Zod-validated env (fail-fast)
+│   ├── auth/                  # Better Auth instance (DI factory + @Global module + CLI config)
 │   ├── prisma/                # PrismaService (pg driver adapter) + @Global module
 │   ├── queue/                 # BullMQ root (Redis)
 │   ├── messaging/             # RabbitMQ client (ClientsModule)
 │   └── health/                # GET /health
 └── modules/                   # business features (feature-first layout)
-    ├── users/                 # CRUD, Zod DTOs, password-safe responses
+    ├── users/                 # read-only (list + get); identity owned by Better Auth
     │   ├── users.module.ts
     │   ├── controllers/
     │   ├── services/          # users.service.ts + users.service.spec.ts
     │   ├── repositories/      # user.repository.ts (port) + prisma-user.repository.ts (impl)
     │   └── dto/
-    ├── auth/                  # register / login / me (Passport JWT)
+    ├── auth/                  # thin: GET /auth/me only (sign-up/in handled by Better Auth at /api/auth/*)
     ├── mail/                  # BullMQ producer + processor demo
     └── notifications/         # RabbitMQ publish + @EventPattern consumer demo
 ```
@@ -75,9 +78,20 @@ src/
 - **Validation & serialization:** `ZodValidationPipe`, `ZodSerializerInterceptor` and
   `HttpExceptionFilter` are registered globally. DTOs are built with `createZodDto(...)`;
   responses are serialized through DTOs so fields like `password` never leak.
-- **Auth:** `JwtAuthGuard` is a global `APP_GUARD` — every route requires a Bearer token
-  unless annotated `@Public()` (login, register, health). The guard lives in `src/common/guards/`
-  and skips non-HTTP (microservice) execution contexts.
+- **Auth (Better Auth):** the Better Auth handler is mounted natively on Fastify at `/api/auth/*`
+  (sign-up, sign-in, social, email verification, sessions) — outside Nest's pipeline and Swagger.
+  A global `BetterAuthGuard` (`src/common/guards/`) protects every Nest route: it calls
+  `auth.api.getSession({ headers })`, resolving **cookie or bearer** credentials, and sets
+  `req.user`. Routes are public only when annotated `@Public()` (e.g. health, `/auth/me` is
+  protected). Bearer clients read the token from the `set-auth-token` response header after
+  sign-in and send `Authorization: Bearer <token>`. The guard skips non-HTTP (microservice)
+  contexts. Set `BETTER_AUTH_SECRET` (≥32 chars) and `BETTER_AUTH_URL` in `.env`; Google/Facebook
+  need their `*_CLIENT_ID`/`*_CLIENT_SECRET` pairs.
+- **Admin (`admin()` plugin):** user management lives under `/api/auth/admin/*` (`list-users`,
+  `create-user`, `set-role`, `ban-user`, `remove-user`, …). Roles are `user`/`admin`; seed admins
+  via the `ADMIN_USER_IDS` env (CSV of user ids — recognized by both Better Auth and the Nest
+  guard). Protect Nest routes with `@Roles('admin')`, enforced by a global `RolesGuard` that runs
+  after `BetterAuthGuard` (allows when `req.user.role` matches or the user id is in `ADMIN_USER_IDS`).
 - **Data access (repository port pattern):** each feature module exposes an `abstract class
   <Feature>Repository` (the port) that acts as both the TypeScript type and the NestJS DI
   token. A `Prisma<Feature>Repository` (the impl) extends it and is the only file that imports

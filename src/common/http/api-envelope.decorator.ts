@@ -3,6 +3,7 @@ import {
   ApiBadRequestResponse,
   ApiConflictResponse,
   ApiExtraModels,
+  ApiForbiddenResponse,
   ApiInternalServerErrorResponse,
   ApiNotFoundResponse,
   ApiResponse,
@@ -68,14 +69,16 @@ export function ApiEnvelopeResponse<TModel extends Type<unknown>>(
   );
 }
 
-// Document the error responses the app can actually emit (400/401/404/409/422/500), all sharing the
-// error envelope DTO. 422 = validation (ZodValidationException → UNPROCESSABLE_ENTITY).
-// 403/429 intentionally omitted — nothing raises them yet (YAGNI).
+// Document the error responses the app can actually emit (400/401/403/404/409/422/500), all
+// sharing the error envelope DTO. 422 = validation (ZodValidationException →
+// UNPROCESSABLE_ENTITY). 403 is used by RolesGuard on authenticated-but-forbidden requests.
+// 429 is intentionally omitted — nothing raises it yet.
 export function ApiStandardErrorResponses() {
   return applyDecorators(
     ApiExtraModels(ErrorResponseDto),
     ApiBadRequestResponse({ type: ErrorResponseDto }),
     ApiUnauthorizedResponse({ type: ErrorResponseDto }),
+    ApiForbiddenResponse({ type: ErrorResponseDto }),
     ApiNotFoundResponse({ type: ErrorResponseDto }),
     ApiConflictResponse({ type: ErrorResponseDto }),
     ApiUnprocessableEntityResponse({ type: ErrorResponseDto }),

@@ -11,7 +11,7 @@ Concise documentation for Claude. Read carefully before generating code.
 | Framework | NestJS 11 + Fastify (`@nestjs/platform-fastify`) |
 | ORM | Prisma 7 — generator `prisma-client` (ESM), client at `src/generated/prisma`, import from `src/generated/prisma/client`, driver adapter `@prisma/adapter-pg` |
 | Validation / Serialization | nestjs-zod + Zod 4 — global `ZodValidationPipe` + `ZodSerializerInterceptor` |
-| Auth | passport-jwt, global `JwtAuthGuard` |
+| Auth | Better Auth (`better-auth`) — email+password, Google/Facebook social, email verification, bearer plugin; mounted natively on Fastify at `/api/auth/*`; global `BetterAuthGuard` validates cookie/bearer sessions |
 | Queue / Messaging | BullMQ (`@nestjs/bullmq`) running in a **separate worker process** + Bull Board (`@bull-board/*`); RabbitMQ (`@golevelup/nestjs-rabbitmq`) — quorum topology + DLX + retry-tier + alternate-exchange; producer in API, consumer + outbox relay in **worker** |
 | Date/Time | `@js-temporal/polyfill` (Temporal API) |
 | Logging | Pino (`nestjs-pino`) — global `LoggerModule` at `src/core/logger/`; `pino-pretty` only in dev, prod uses JSON; replace Nest logger via `app.useLogger` |
@@ -48,10 +48,21 @@ pnpm prisma:generate  # Generate Prisma client
 - `useImportType` is off — `import type` is NOT required.
 - Note: Biome `noExplicitAny` is currently off (not auto-enforced) — this rule is enforced via review/`/review-code`. A few legacy files (`rate-limit.service.ts`, `pubsub.service.ts`, `api-envelope.decorator.ts`) still have `any`; clean them up before enabling `noExplicitAny` in `biome.json`.
 
-### Auth opt-out — `@Public()` to expose endpoints
-- Global `JwtAuthGuard` protects EVERY route by default.
+### Auth — Better Auth + `@Public()` opt-out
+- **Better Auth** owns authentication. Its handler is mounted as a **native Fastify catch-all at `/api/auth/*`** in `main.ts` (via the `auth.handler(Request)` Fetch bridge) — these routes live OUTSIDE Nest's pipeline and OUTSIDE Nest Swagger (`/docs`). All sign-up/sign-in/social/verify-email/session endpoints are served there (e.g. `POST /api/auth/sign-up/email`, `POST /api/auth/sign-in/email`, `GET /api/auth/sign-in/social`).
+- The Better Auth instance is built via DI in `src/core/auth/` (`BetterAuthModule`, `@Global`, token `AUTH_INSTANCE`); `auth-options.ts` holds the pure options shared with the CLI (`auth.cli.ts`, schema generation only). Email verification enqueues through the existing BullMQ `mail` queue; the `user.create` hook enqueues `user.registered` to the outbox (best-effort, non-transactional).
+- Global `BetterAuthGuard` (`src/common/guards/better-auth.guard.ts`) protects EVERY Nest route by default — it calls `auth.api.getSession({ headers })`, resolving **both cookie and bearer** credentials (the `bearer()` plugin reads `Authorization`), and sets `req.user = { userId, email, role }`. Non-HTTP (RMQ/BullMQ) contexts are skipped.
+- **Bearer clients:** after sign-in, read the token from the **`set-auth-token`** response header and send it as `Authorization: Bearer <token>` on later requests.
 - To expose a public route: apply decorator `@Public()` (from `src/common/decorators/public.decorator.ts`).
 - Controllers requiring auth: `ApiBearerAuth()` goes INSIDE the module's composite decorator (see the Swagger section below), NOT directly on the controller.
+- DB schema is owned by Better Auth (`user`/`session`/`account`/`verification` models, generated via `@better-auth/cli generate` against `auth.cli.ts`). The Users module is **read-only** (`GET /users`, `GET /users/:id`) — user creation goes through `/api/auth/sign-up/email`, never `POST /users`.
+
+### Admin — `admin()` plugin + `@Roles()` / `RolesGuard`
+- The Better Auth **`admin()` plugin** (`auth-options.ts`, `defaultRole:'user'`, `adminRoles:['admin']`) serves user-management endpoints under the same mount: `/api/auth/admin/*` (`list-users`, `create-user`, `set-role`, `ban-user`, `unban-user`, `remove-user`, `list-user-sessions`...). It adds `role`/`banned`/`banReason`/`banExpires` to `user` and `impersonatedBy` to `session`. Authorization for these endpoints is enforced **inside** Better Auth.
+- **Seed admins via `ADMIN_USER_IDS`** (env, CSV). These ids are treated as admin by both Better Auth (`adminUserIds`) AND the Nest `RolesGuard`. To set a persistent DB `role='admin'`, call `POST /api/auth/admin/set-role` from an existing admin. (Banned users: Better Auth revokes their sessions → `getSession` returns null → `BetterAuthGuard` rejects them automatically.)
+- **Protect Nest routes by role:** `@Roles('admin')` (from `src/common/decorators/roles.decorator.ts`) + the global `RolesGuard` (`src/common/guards/roles.guard.ts`, registered as a 2nd `APP_GUARD` AFTER `BetterAuthGuard`). Logic: no `@Roles` → allow; else allow if `req.user.role` ∈ roles **OR** `userId ∈ ADMIN_USER_IDS`; else 403.
+- **Impersonation is intentionally not used.** With default roles the `admin` role still carries the permission, so `/api/auth/admin/impersonate-user` remains reachable by admins; fully blocking it needs custom access control (out of scope).
+- Only two roles exist: `user` / `admin` (no custom access-control / permissions).
 
 ### Logging — Pino (nestjs-pino)
 - Global logger configured at `src/core/logger/logger.module.ts`; `main.ts` replaces the Nest logger via `app.useLogger(app.get(Logger))` (Logger from `nestjs-pino`) + `bufferLogs: true`.
@@ -101,12 +112,13 @@ src/
 ├── worker.module.ts # root module Worker (Redis + Prisma + RMQ consumer + Outbox relay)
 ├── common/          # cross-cutting concerns
 │   ├── auth/        # basic-auth.ts (verifyBasicAuth + Fastify hook for Bull Board)
-│   ├── decorators/  # @Public(), etc.
+│   ├── decorators/  # @Public(), @Roles(), @CurrentUser()
 │   ├── filters/     # HttpExceptionFilter
-│   ├── guards/      # JwtAuthGuard
+│   ├── guards/      # BetterAuthGuard + RolesGuard (both global APP_GUARD)
 │   └── interceptors/
 ├── core/            # infrastructure (no business logic)
 │   ├── config/      # Zod-validated env
+│   ├── auth/        # Better Auth: auth-options.ts (pure) + auth.ts (DI factory, AUTH_INSTANCE) + auth.module.ts (@Global) + auth.cli.ts (schema-gen)
 │   ├── prisma/      # PrismaService (@Global)
 │   ├── queue/       # BullMQ root
 │   ├── messaging/   # RabbitMQ client
@@ -120,7 +132,7 @@ src/
     │   ├── services/      # *.service.ts (tests in test/unit/, NOT colocated)
     │   ├── repositories/  # *.repository.port.ts (PORT) + *.repository.prisma.ts (IMPL)
     │   └── dto/
-    ├── auth/
+    ├── auth/                 # thin: only GET /auth/me (session-backed); sign-up/in served by Better Auth at /api/auth/*
     ├── mail/                 # mail.module.ts (producer) + mail-worker.module.ts (processor)
     │   └── jobs/             # mail.producer.ts, mail.processor.ts
     └── notifications/     # RabbitMQ consumer (NotificationsConsumerModule)

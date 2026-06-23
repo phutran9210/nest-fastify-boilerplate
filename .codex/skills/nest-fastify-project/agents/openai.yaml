@@ -1,0 +1,4 @@
+interface:
+  display_name: "Nest Fastify Project"
+  short_description: "Project workflows for this NestJS Fastify repo"
+  default_prompt: "Use $nest-fastify-project to follow this repo conventions while creating DTOs, modules, tests, or reviews."

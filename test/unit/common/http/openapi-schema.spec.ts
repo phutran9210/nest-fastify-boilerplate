@@ -1,6 +1,5 @@
 import { healthResponseSchema } from '@core/health/dto/health-response.dto';
 import { authUserResponseSchema } from '@modules/auth/dto/auth-user-response.dto';
-import { loginResponseSchema } from '@modules/auth/dto/login-response.dto';
 import { mailTestResponseSchema } from '@modules/mail/dto/mail-test-response.dto';
 import { notificationPublishResponseSchema } from '@modules/notifications/dto/notification-publish-response.dto';
 import { paginatedUsersResponseSchema } from '@modules/users/dto/paginated-users-response.dto';
@@ -13,7 +12,6 @@ describe('OpenAPI JSON schema generation (nestjs-zod io=input)', () => {
     ['errorResponseSchema', errorResponseSchema],
     ['paginatedUsersResponseSchema', paginatedUsersResponseSchema],
     ['userResponseSchema', userResponseSchema],
-    ['loginResponseSchema', loginResponseSchema],
     ['authUserResponseSchema', authUserResponseSchema],
     ['mailTestResponseSchema', mailTestResponseSchema],
     ['notificationPublishResponseSchema', notificationPublishResponseSchema],

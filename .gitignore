@@ -17,3 +17,5 @@ dist
 /logs
 .idea/
 /src/generated
+/better-auth-react-playground
+/.playwright-mcp

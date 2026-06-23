@@ -1,6 +1,8 @@
 import { HttpExceptionFilter } from '@common/filters/http-exception.filter';
-import { JwtAuthGuard } from '@common/guards/jwt-auth.guard';
+import { BetterAuthGuard } from '@common/guards/better-auth.guard';
+import { RolesGuard } from '@common/guards/roles.guard';
 import { ResponseInterceptor } from '@common/interceptors/response.interceptor';
+import { BetterAuthModule } from '@core/auth/auth.module';
 import { CoreConfigModule } from '@core/config/config.module';
 import { HealthController } from '@core/health/health.controller';
 import { CoreI18nModule } from '@core/i18n/i18n.module';
@@ -26,6 +28,7 @@ import { ZodSerializerInterceptor, ZodValidationPipe } from 'nestjs-zod';
     PrismaModule,
     QueueModule,
     RedisModule,
+    BetterAuthModule,
     MessagingModule.forRoot({ consumer: false }),
     OutboxModule.forProducer(),
     UsersModule,
@@ -39,7 +42,8 @@ import { ZodSerializerInterceptor, ZodValidationPipe } from 'nestjs-zod';
     { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor },
     { provide: APP_INTERCEPTOR, useClass: ZodSerializerInterceptor },
     { provide: APP_FILTER, useClass: HttpExceptionFilter },
-    { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: BetterAuthGuard },
+    { provide: APP_GUARD, useClass: RolesGuard },
   ],
 })
 export class AppModule {}

@@ -3,9 +3,11 @@ import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { fromNodeHeaders } from 'better-auth/node';
 import { Logger } from 'nestjs-pino';
 import { cleanupOpenApiDoc } from 'nestjs-zod';
 import { AppModule } from './app.module';
+import { AUTH_INSTANCE, type AuthInstance } from './core/auth/auth';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestFastifyApplication>(
@@ -30,9 +32,34 @@ async function bootstrap(): Promise<void> {
   app.useLogger(app.get(Logger));
   const config = app.get(ConfigService);
 
-  // Permissive CORS for local/dev. Restrict `origin` (e.g. from an ALLOWED_ORIGINS env var)
-  // before deploying to production.
-  app.enableCors();
+  const allowedOrigins = config.get<string[]>('ALLOWED_ORIGINS') ?? [];
+  app.enableCors({
+    origin: allowedOrigins.length > 0 ? allowedOrigins : true,
+    credentials: true,
+  });
+
+  // Mount Better Auth on a Fastify catch-all using the documented Fetch bridge.
+  // Forward response headers verbatim so Set-Cookie AND set-auth-token reach the client.
+  const auth: AuthInstance = app.get(AUTH_INSTANCE);
+  const fastify = app.getHttpAdapter().getInstance();
+  fastify.route({
+    method: ['GET', 'POST'],
+    url: '/api/auth/*',
+    async handler(request, reply) {
+      const url = new URL(request.url, `http://${request.headers.host}`);
+      const req = new Request(url.toString(), {
+        method: request.method,
+        headers: fromNodeHeaders(request.headers),
+        ...(request.body ? { body: JSON.stringify(request.body) } : {}),
+      });
+      const response = await auth.handler(req);
+      reply.status(response.status);
+      response.headers.forEach((value, key) => {
+        reply.header(key, value);
+      });
+      return reply.send(response.body ? await response.text() : null);
+    },
+  });
 
   const openApiDoc = SwaggerModule.createDocument(
     app,

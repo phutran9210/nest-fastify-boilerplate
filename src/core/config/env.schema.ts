@@ -48,9 +48,43 @@ export const envSchema = z
     RABBITMQ_OUTBOX_BATCH: z.coerce.number().int().positive().default(50),
     RABBITMQ_OUTBOX_MAX_ATTEMPTS: z.coerce.number().int().positive().default(10),
 
-    JWT_SECRET: z.string().min(8),
-    // Seconds until the access token expires (jsonwebtoken accepts a number of seconds).
-    JWT_EXPIRES_IN: z.coerce.number().int().positive().default(3600),
+    // ── Better Auth ───────────────────────────────────────────────────────
+    // Server secret for signing sessions/tokens. Min 32 chars.
+    BETTER_AUTH_SECRET: z.string().min(32),
+    // Public base URL where the API (and /api/auth) is reachable.
+    BETTER_AUTH_URL: z.url().default('http://localhost:3000'),
+    // Require email verification before sign-in. Defaults ON (prod-safe); set false in dev .env.
+    EMAIL_VERIFICATION_REQUIRED: z.stringbool().default(true),
+    // CSV of trusted origins used by CORS and Better Auth. Empty means Better Auth trusts only
+    // BETTER_AUTH_URL (same-origin by default); list extra frontend origins explicitly.
+    ALLOWED_ORIGINS: z
+      .string()
+      .optional()
+      .transform((s) =>
+        s
+          ? s
+              .split(',')
+              .map((o) => o.trim())
+              .filter(Boolean)
+          : [],
+      ),
+    // CSV of user ids always treated as admin (Better Auth `adminUserIds` + Nest RolesGuard).
+    ADMIN_USER_IDS: z
+      .string()
+      .optional()
+      .transform((s) =>
+        s
+          ? s
+              .split(',')
+              .map((id) => id.trim())
+              .filter(Boolean)
+          : [],
+      ),
+    // Social providers — each registered only if BOTH id+secret are present.
+    GOOGLE_CLIENT_ID: z.string().optional(),
+    GOOGLE_CLIENT_SECRET: z.string().optional(),
+    FACEBOOK_CLIENT_ID: z.string().optional(),
+    FACEBOOK_CLIENT_SECRET: z.string().optional(),
 
     // Ngôn ngữ fallback của nestjs-i18n khi không resolve được locale hoặc thiếu bản dịch.
     FALLBACK_LANGUAGE: z.string().default('vi'),
@@ -84,6 +118,22 @@ export const envSchema = z
         path: ['RABBITMQ_RETRY_DELAYS_MS'],
         message: `RABBITMQ_RETRY_DELAYS_MS phải có ít nhất RABBITMQ_MAX_RETRIES (${env.RABBITMQ_MAX_RETRIES}) phần tử.`,
       });
+    }
+    // A social provider needs BOTH id and secret, or neither.
+    const pairs: Array<[string, string, string]> = [
+      ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'Google'],
+      ['FACEBOOK_CLIENT_ID', 'FACEBOOK_CLIENT_SECRET', 'Facebook'],
+    ];
+    for (const [idKey, secretKey, label] of pairs) {
+      const id = env[idKey as keyof typeof env];
+      const secret = env[secretKey as keyof typeof env];
+      if (Boolean(id) !== Boolean(secret)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: [id ? secretKey : idKey],
+          message: `${label} OAuth needs both id and secret, or neither.`,
+        });
+      }
     }
   });
 

@@ -4,7 +4,7 @@ function baseEnv(overrides: Record<string, unknown> = {}): Record<string, unknow
   return {
     DATABASE_URL: 'postgres://u:p@localhost:5432/app',
     RABBITMQ_URL: 'amqp://localhost:5672',
-    JWT_SECRET: 'supersecret',
+    BETTER_AUTH_SECRET: 'test-better-auth-secret-32-chars-min',
     ...overrides,
   };
 }
